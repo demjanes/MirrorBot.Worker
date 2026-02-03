@@ -1,7 +1,7 @@
-using Console.Advanced.Abstract;
+using MirrorBot.Worker.Abstract;
 using Telegram.Bot;
 
-namespace Console.Advanced.Services;
+namespace MirrorBot.Worker.Services;
 
 // Compose Receiver and UpdateHandler implementation
 public class ReceiverService(ITelegramBotClient botClient, UpdateHandler updateHandler, ILogger<ReceiverServiceBase<UpdateHandler>> logger)

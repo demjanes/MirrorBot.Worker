@@ -1,4 +1,4 @@
-namespace Console.Advanced;
+namespace MirrorBot.Worker;
 
 public class BotConfiguration
 {

@@ -1,4 +1,4 @@
-namespace Console.Advanced.Abstract;
+namespace MirrorBot.Worker.Abstract;
 
 public interface IReceiverService
 {

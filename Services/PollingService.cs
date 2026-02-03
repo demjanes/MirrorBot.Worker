@@ -1,6 +1,6 @@
-using Console.Advanced.Abstract;
+using MirrorBot.Worker.Abstract;
 
-namespace Console.Advanced.Services;
+namespace MirrorBot.Worker.Services;
 
 // Compose Polling and ReceiverService implementations
 public class PollingService(IServiceProvider serviceProvider, ILogger<PollingService> logger)

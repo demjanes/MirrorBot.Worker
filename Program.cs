@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
-using Console.Advanced;
-using Console.Advanced.Services;
+using MirrorBot.Worker;
+using MirrorBot.Worker.Services;
 
 IHost host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
