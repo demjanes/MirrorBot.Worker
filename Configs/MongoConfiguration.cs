@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MirrorBot.Worker.Data
+namespace MirrorBot.Worker.Configs
 {
-    public sealed class MongoOptions
+    public sealed class MongoConfiguration
     {
         public string ConnectionString { get; set; } = default!;
         public string Database { get; set; } = default!;

@@ -1,11 +1,8 @@
-﻿using MongoDB.Driver;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using MirrorBot.Worker.Configs;
+using MirrorBot.Worker.Data.Entities;
+using MongoDB.Driver;
 
-namespace MirrorBot.Worker.Data
+namespace MirrorBot.Worker.Data.Repo
 {
     public sealed class MirrorBotsRepository
     {

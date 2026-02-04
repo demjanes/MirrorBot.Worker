@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MirrorBot.Worker.Data
+namespace MirrorBot.Worker.Configs
 {
     public static class MongoCollections
     {

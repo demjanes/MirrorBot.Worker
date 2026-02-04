@@ -12,6 +12,8 @@ namespace MirrorBot.Worker.Bot
     public sealed class BotRunner
     {
         public BotContext Context { get; }
+        public ITelegramBotClient Client => _client;
+
         private readonly ITelegramBotClient _client;
         private readonly IUpdateHandler _handler;
         private CancellationTokenSource? _cts;

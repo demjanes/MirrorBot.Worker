@@ -1,43 +1,41 @@
 ﻿using Microsoft.Extensions.Options;
-using MirrorBot.Worker.Data;
+using MirrorBot.Worker.Configs;
+using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Telegram.Bot;
 
 namespace MirrorBot.Worker.Bot
 {
-    public sealed class BotManager : BackgroundService
+    public sealed class BotManager : BackgroundService, IBotClientResolver
     {
         private const string MainKey = "__main__";
 
         private readonly ILogger<BotManager> _log;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly MirrorBotsRepository _repo;
         private readonly BotFlowService _flow;
         private readonly IOptions<BotConfiguration> _mainOpt;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly ILoggerFactory _loggerFactory;
 
         private readonly ConcurrentDictionary<string, BotRunner> _runners = new();
 
         public BotManager(
+            ILoggerFactory loggerFactory,
             ILogger<BotManager> log,
             MirrorBotsRepository repo,
             BotFlowService flow,
             IOptions<BotConfiguration> mainOpt,
-            IHttpClientFactory httpClientFactory,
-            ILoggerFactory loggerFactory)
+            IHttpClientFactory httpClientFactory
+            )
         {
+            _loggerFactory = loggerFactory;
             _log = log;
+
             _repo = repo;
             _flow = flow;
             _mainOpt = mainOpt;
             _httpClientFactory = httpClientFactory;
-            _loggerFactory = loggerFactory;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -121,6 +119,16 @@ namespace MirrorBot.Worker.Bot
                 runner.Stop();
                 throw;
             }
+        }
+
+        public bool TryGetClient(string botKey, out ITelegramBotClient client)
+        {
+            client = default!;
+            if (!_runners.TryGetValue(botKey, out var runner))
+                return false;
+
+            client = runner.Client; // см. правку BotRunner ниже
+            return true;
         }
     }
 }

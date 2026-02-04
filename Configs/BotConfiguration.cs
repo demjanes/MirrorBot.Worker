@@ -1,4 +1,4 @@
-namespace MirrorBot.Worker;
+namespace MirrorBot.Worker.Configs;
 
 public class BotConfiguration
 {

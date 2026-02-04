@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
-using MirrorBot.Worker;
 using MirrorBot.Worker.Bot;
-using MirrorBot.Worker.Data;
+using MirrorBot.Worker.Configs;
+using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow;
 using MongoDB.Driver;
 using Telegram.Bot;
@@ -11,17 +11,17 @@ IHost host = Host.CreateDefaultBuilder(args)
     {
         //configs
         services.Configure<BotConfiguration>(context.Configuration.GetSection("BotConfiguration"));
-        services.Configure<MongoOptions>(context.Configuration.GetSection("Mongo"));
+        services.Configure<MongoConfiguration>(context.Configuration.GetSection("Mongo"));
 
         //Mongo 
         services.AddSingleton<IMongoClient>(sp =>
         {
-            var opt = sp.GetRequiredService<IOptions<MongoOptions>>().Value;
+            var opt = sp.GetRequiredService<IOptions<MongoConfiguration>>().Value;
             return new MongoClient(opt.ConnectionString);
         }); 
         services.AddSingleton(sp =>
         {
-            var opt = sp.GetRequiredService<IOptions<MongoOptions>>().Value;
+            var opt = sp.GetRequiredService<IOptions<MongoConfiguration>>().Value;
             var client = sp.GetRequiredService<IMongoClient>();
             return client.GetDatabase(opt.Database);
         });

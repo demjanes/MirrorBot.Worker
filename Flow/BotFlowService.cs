@@ -1,5 +1,9 @@
 ﻿using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Data;
+using MirrorBot.Worker.Data.Entities;
+using MirrorBot.Worker.Data.Events;
+using MirrorBot.Worker.Data.Repo;
+using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -33,18 +37,38 @@ namespace MirrorBot.Worker.Flow
             if (msg.From is null) return;
             if (msg.Text is null) return;
 
-            // 1) user upsert-lite
-            var u = await _users.GetByTelegramIdAsync(msg.From.Id, ct);
-            if (u is null)
-            {
-                await _users.InsertAsync(new UserEntity
-                {
-                    TelegramUserId = msg.From.Id,
-                    Username = msg.From.Username
-                }, ct);
+            var nowUtc = DateTime.UtcNow;
 
-                await _users.SetReferralIfEmptyAsync(msg.From.Id, ctx.OwnerTelegramUserId, ctx.MirrorBotId, ct);
+            var lastBotKey = ctx.MirrorBotId == MongoDB.Bson.ObjectId.Empty
+                ? "__main__"
+                : ctx.MirrorBotId.ToString();
+
+            // реферал только для зеркал
+            long? refOwner = null;
+            MongoDB.Bson.ObjectId? refBotId = null;
+
+            if (ctx.OwnerTelegramUserId != 0 && ctx.MirrorBotId != ObjectId.Empty)
+            {
+                if (msg.From.Id != ctx.OwnerTelegramUserId)
+                {
+                    refOwner = ctx.OwnerTelegramUserId;
+                    refBotId = ctx.MirrorBotId;
+                }
             }
+
+            var seen = new UserSeenEvent(
+                TgUserId: msg.From.Id,
+                TgUsername: msg.From.Username,
+                TgFirstName: msg.From.FirstName,
+                TgLastName: msg.From.LastName,
+                LastBotKey: lastBotKey,
+                LastChatId: msg.Chat.Id,
+                SeenAtUtc: nowUtc,
+                ReferrerOwnerTgUserId: refOwner,
+                ReferrerMirrorBotId: refBotId
+            );
+
+            await _users.UpsertSeenAsync(seen, ct);
 
             // 2) команды
             var cmd = CommandRouter.TryGetCommand(msg.Text);
@@ -55,7 +79,6 @@ namespace MirrorBot.Worker.Flow
                     chatId: msg.Chat.Id,
                     text: $"Привет! Владелец этого зеркала: {ctx.OwnerTelegramUserId}",
                     cancellationToken: ct);
-
                 return;
             }
 
@@ -65,26 +88,19 @@ namespace MirrorBot.Worker.Flow
                     chatId: msg.Chat.Id,
                     text: "Пришлите токен бота следующим сообщением.",
                     cancellationToken: ct);
-
                 return;
             }
 
-            // Упрощение: если сообщение похоже на токен — считаем, что это токен после /addbot
+            //добавление бота
             if (LooksLikeToken(msg.Text))
             {
-                // Проверка на дубль
                 var existing = await _mirrorBots.GetByTokenAsync(msg.Text, ct);
                 if (existing is not null)
                 {
-                    await client.SendMessage(
-                        chatId: msg.Chat.Id,
-                        text: "Этот токен уже добавлен.",
-                        cancellationToken: ct);
-
+                    await client.SendMessage(msg.Chat.Id, "Этот токен уже добавлен.", cancellationToken: ct);
                     return;
                 }
 
-                // Валидация токена через getMe
                 var http = _httpClientFactory.CreateClient("telegram");
                 var probe = new TelegramBotClient(new TelegramBotClientOptions(msg.Text), http);
 
@@ -98,18 +114,11 @@ namespace MirrorBot.Worker.Flow
                     IsEnabled = true
                 }, ct);
 
-                await client.SendMessage(
-                    chatId: msg.Chat.Id,
-                    text: $"Зеркало @{me.Username} добавлено. Оно запустится автоматически.",
-                    cancellationToken: ct);
-
+                await client.SendMessage(msg.Chat.Id, $"Зеркало @{me.Username} добавлено. Оно запустится автоматически.", cancellationToken: ct);
                 return;
             }
 
-            await client.SendMessage(
-                chatId: msg.Chat.Id,
-                text: "Не понял. /start /addbot",
-                cancellationToken: ct);
+            await client.SendMessage(msg.Chat.Id, "Не понял. /start /addbot", cancellationToken: ct);
         }
 
         private static bool LooksLikeToken(string text)
