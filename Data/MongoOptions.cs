@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Data
 {
-    internal class MongoOptions
+    public sealed class MongoOptions
     {
+        public string ConnectionString { get; set; } = default!;
+        public string Database { get; set; } = default!;
     }
 }

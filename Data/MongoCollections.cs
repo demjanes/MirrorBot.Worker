@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Data
 {
-    internal class MongoCollections
+    public static class MongoCollections
     {
+        public const string MirrorBots = "mirrorBots";
+        public const string Users = "users";
     }
 }
