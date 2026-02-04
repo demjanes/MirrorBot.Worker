@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using MirrorBot.Worker;
 using MirrorBot.Worker.Services;
@@ -6,12 +6,8 @@ using MirrorBot.Worker.Services;
 IHost host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {
-        // Register Bot configuration
         services.Configure<BotConfiguration>(context.Configuration.GetSection("BotConfiguration"));
 
-        // Register named HttpClient to benefits from IHttpClientFactory and consume it with ITelegramBotClient typed client.
-        // See https://docs.microsoft.com/en-us/aspnet/core/fundamentals/http-requests?view=aspnetcore-5.0#typed-clients
-        // and https://docs.microsoft.com/en-us/dotnet/architecture/microservices/implement-resilient-applications/use-httpclientfactory-to-implement-resilient-http-requests
         services.AddHttpClient("telegram_bot_client").RemoveAllLoggers()
                 .AddTypedClient<ITelegramBotClient>((httpClient, sp) =>
                 {
@@ -24,6 +20,16 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddScoped<UpdateHandler>();
         services.AddScoped<ReceiverService>();
         services.AddHostedService<PollingService>();
+
+        //логгирование в файл
+        services.AddLogging(logging =>
+            logging.AddFile("logs/mirrorbot-{Date}.txt",  // ← {Date} вместо -
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} | [{Level:u3}] | {SourceContext} | {Message:lj}:{Exception}{NewLine}",
+                fileSizeLimitBytes: 8_388_608,
+                retainedFileCountLimit: 31));
+
+
+
     })
     .Build();
 

@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "Console.Advanced": {
+    "MirrorBot.Worker": {
       "commandName": "Project",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
