@@ -1,16 +1,13 @@
 ﻿using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Repo;
-using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Bson;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.ReplyMarkups;
 using static MirrorBot.Worker.Flow.BotUi.Keyboards;
 
 namespace MirrorBot.Worker.Flow.Handlers
@@ -20,7 +17,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly UsersRepository _users;
         private readonly MirrorBotsRepository _mirrorBots;
         private readonly IAdminNotifier _notifier;
-              
+
         public BotCallbackHandler(
             UsersRepository users,
             MirrorBotsRepository mirrorBots,
@@ -28,7 +25,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         {
             _users = users;
             _mirrorBots = mirrorBots;
-            _notifier = notifier;            
+            _notifier = notifier;
         }
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
@@ -42,53 +39,53 @@ namespace MirrorBot.Worker.Flow.Handlers
             if (!cb.Section.Equals("bot", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            var chatId = cq.Message?.Chat.Id ?? cq.From.Id;
-
             // Чтобы "часики" не крутились
             await client.AnswerCallbackQuery(cq.Id, cancellationToken: ct);
 
             switch (cb.Action.ToLowerInvariant())
             {
                 case "add":
-                    await client.SendMessage(chatId, BotUi.Text.AskBotToken, cancellationToken: ct);
+                    await EditOrSendAsync(client, cq, BotUi.Text.AskBotToken, kb: null, ct);
                     return;
 
                 case "my":
-                    await SendMyBotsPageAsync(ctx, client, chatId, cq, ct);
+                    await SendMyBotsPageAsync(client, cq, ct);
                     return;
 
                 case "edit":
                     if (!TryGetObjectId(cb.Args, 0, out var editId)) return;
-                    await SendBotEditPageAsync(ctx, client, chatId, editId, ct);
+                    await SendBotEditPageAsync(client, cq, editId, ct);
                     return;
 
                 case "start":
                     if (!TryGetObjectId(cb.Args, 0, out var startId)) return;
-                    await SetBotEnabledAsync(ctx, client, chatId, startId, isEnabled: true, ct);
+                    await SetBotEnabledAsync(client, cq, startId, isEnabled: true, ct);
                     return;
 
                 case "stop":
                     if (!TryGetObjectId(cb.Args, 0, out var stopId)) return;
-                    await SetBotEnabledAsync(ctx, client, chatId, stopId, isEnabled: false, ct);
+                    await SetBotEnabledAsync(client, cq, stopId, isEnabled: false, ct);
                     return;
 
                 case "del":
                     if (!TryGetObjectId(cb.Args, 0, out var delId)) return;
-                    await client.SendMessage(
-                        chatId,
+
+                    await EditOrSendAsync(
+                        client,
+                        cq,
                         text: "Удалить бота? Это действие нельзя отменить.",
-                        replyMarkup: BotUi.Keyboards.ConfirmDelete(delId.ToString()),
-                        cancellationToken: ct);
+                        kb: BotUi.Keyboards.ConfirmDelete(delId.ToString()),
+                        ct);
                     return;
 
                 case "del_yes":
                     if (!TryGetObjectId(cb.Args, 0, out var yesId)) return;
-                    await DeleteBotAsync(ctx, client, chatId, yesId, ct);
+                    await DeleteBotAsync(client, cq, yesId, ct);
                     return;
 
                 case "del_no":
                     if (!TryGetObjectId(cb.Args, 0, out var noId)) return;
-                    await SendBotEditPageAsync(ctx, client, chatId, noId, ct);
+                    await SendBotEditPageAsync(client, cq, noId, ct);
                     return;
 
                 default:
@@ -97,91 +94,132 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task SendMyBotsPageAsync(BotContext ctx, ITelegramBotClient client, long chatId, CallbackQuery cq, CancellationToken ct)
+        private async Task SendMyBotsPageAsync(ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
         {
-            // Владелец = тот, кто нажал кнопку (cq.From.Id)
             var ownerId = cq.From.Id;
+            var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct);
 
-            var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct); // <-- подгони под свой репо
-            var items = bots
-                .Select(b => new BotListItem(
-                    Id: b.Id.ToString(),
-                    Title: "@" + (b.BotUsername ?? "unknown"),
-                    IsEnabled: b.IsEnabled))
-                .ToList();
+            var items = bots.Select(b => new BotListItem(
+                Id: b.Id.ToString(),
+                Title: "@" + (b.BotUsername ?? "unknown"),
+                IsEnabled: b.IsEnabled)).ToList();
 
-            await client.SendMessage(
-                chatId,
-                text: items.Count == 0 ? "У вас пока нет ботов." : "Ваши боты:",
-                replyMarkup: BotUi.Keyboards.MyBots(items),
-                cancellationToken: ct);
+            var text = items.Count == 0 ? "У вас пока нет ботов." : "Ваши боты:";
+            var kb = BotUi.Keyboards.MyBots(items);
+
+            await EditOrSendAsync(client, cq, text, kb, ct);
         }
 
-        private async Task SendBotEditPageAsync(BotContext ctx, ITelegramBotClient client, long chatId, ObjectId botId, CancellationToken ct)
+        private async Task SendBotEditPageAsync(ITelegramBotClient client, CallbackQuery cq, ObjectId botId, CancellationToken ct)
         {
-            var bot = await _mirrorBots.GetByOdjectIdAsync(botId, ct); // <-- подгони под свой репо
+            var bot = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
             if (bot is null)
             {
-                await client.SendMessage(chatId, "Бот не найден.", cancellationToken: ct);
+                await EditOrSendAsync(client, cq, "Бот не найден.", kb: null, ct);
                 return;
             }
 
-            // Безопасность: не даём редактировать чужие боты
-            // (если у тебя OwnerTelegramUserId хранится)
-            // if (bot.OwnerTelegramUserId != ... ) return;
+            // security check: только владелец
+            if (bot.OwnerTelegramUserId != cq.From.Id)
+            {
+                await EditOrSendAsync(client, cq, "Нет доступа.", kb: null, ct);
+                return;
+            }
 
             var text = $"Бот @{bot.BotUsername}\nСостояние: {(bot.IsEnabled ? "включён" : "выключен")}";
-            await client.SendMessage(
-                chatId,
-                text: text,
-                replyMarkup: BotUi.Keyboards.BotEdit(bot.Id.ToString(), bot.IsEnabled),
-                cancellationToken: ct);
+            var kb = BotUi.Keyboards.BotEdit(bot.Id.ToString(), bot.IsEnabled);
+
+            await EditOrSendAsync(client, cq, text, kb, ct);
         }
 
-        private async Task SetBotEnabledAsync(BotContext ctx, ITelegramBotClient client, long chatId, ObjectId botId, bool isEnabled, CancellationToken ct)
+        private async Task SetBotEnabledAsync(ITelegramBotClient client, CallbackQuery cq, ObjectId botId, bool isEnabled, CancellationToken ct)
         {
             var bot = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
             if (bot is null)
             {
-                await client.SendMessage(chatId, "Бот не найден.", cancellationToken: ct);
+                await EditOrSendAsync(client, cq, "Бот не найден.", kb: null, ct);
                 return;
             }
 
-            // TODO: security check owner
+            // security check: только владелец
+            if (bot.OwnerTelegramUserId != cq.From.Id)
+            {
+                await EditOrSendAsync(client, cq, "Нет доступа.", kb: null, ct);
+                return;
+            }
 
             var nowUtc = DateTime.UtcNow;
-            await _mirrorBots.SetEnabledAsync(botId, isEnabled, nowUtc, ct); // <-- подгони под свой репо
+            await _mirrorBots.SetEnabledAsync(botId, isEnabled, nowUtc, ct);
 
-            await client.SendMessage(
-                chatId,
-                text: isEnabled ? "Бот запущен." : "Бот остановлен.",
-                replyMarkup: BotUi.Keyboards.BotEdit(botId.ToString(), isEnabled),
-                cancellationToken: ct);
+            // Редактируем страницу бота (показываем актуальное состояние)
+            await SendBotEditPageAsync(client, cq, botId, ct);
         }
 
-        private async Task DeleteBotAsync(BotContext ctx, ITelegramBotClient client, long chatId, ObjectId botId, CancellationToken ct)
+        private async Task DeleteBotAsync(ITelegramBotClient client, CallbackQuery cq, ObjectId botId, CancellationToken ct)
         {
             var bot = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
             if (bot is null)
             {
-                await client.SendMessage(chatId, "Бот не найден.", cancellationToken: ct);
+                await EditOrSendAsync(client, cq, "Бот не найден.", kb: null, ct);
                 return;
             }
 
-            // TODO: security check owner
+            // security check: только владелец
+            if (bot.OwnerTelegramUserId != cq.From.Id)
+            {
+                await EditOrSendAsync(client, cq, "Нет доступа.", kb: null, ct);
+                return;
+            }
 
-            await _mirrorBots.DeleteByOdjectIdAsync(botId, ct); // <-- подгони под свой репо
+            await _mirrorBots.DeleteByOdjectIdAsync(botId, ct);
 
-            await client.SendMessage(chatId, "Бот удалён.", cancellationToken: ct);
+            // После удаления показываем список (редактируем то же сообщение)
+            await EditOrSendAsync(client, cq, "Бот удалён.", kb: null, ct);
+            await SendMyBotsPageAsync(client, cq, ct);
+        }
 
-            // Перекидываем назад в список
-            // (можно вызвать SendMyBotsPageAsync, но нужен CallbackQuery; проще отправить кнопку "Мои боты")
-            await client.SendMessage(
-                chatId,
-                "Открыть список:",
-                replyMarkup: new Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup(
-                    Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("Мои боты", CbCodec.Pack("bot", "my"))),
-                cancellationToken: ct);
+        private static async Task EditOrSendAsync(
+    ITelegramBotClient client,
+    CallbackQuery cq,
+    string text,
+    InlineKeyboardMarkup? kb,
+    CancellationToken ct)
+        {
+            if (cq.Message is not { } m)
+            {
+                await client.SendMessage(
+                    chatId: cq.From.Id,
+                    text: text,
+                    replyMarkup: kb,
+                    cancellationToken: ct);
+                return;
+            }
+
+            try
+            {
+                await client.EditMessageText(
+                    chatId: m.Chat.Id,
+                    messageId: m.MessageId,
+                    text: text,
+                    replyMarkup: kb,
+                    cancellationToken: ct);
+            }
+            catch (ApiRequestException ex) when (
+                ex.Message.Contains("message can't be edited", StringComparison.OrdinalIgnoreCase) ||  // [web:540]
+                ex.Message.Contains("message not found", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))  // [web:565]
+            {
+                // Если "not modified" — можно вообще ничего не делать, но fallback тоже не критичен.
+                // Если "can't be edited"/"not found" — шлём новое сообщение.
+                if (ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                await client.SendMessage(
+                    chatId: m.Chat.Id,
+                    text: text,
+                    replyMarkup: kb,
+                    cancellationToken: ct);
+            }
         }
 
         private static bool TryGetObjectId(string[] args, int index, out ObjectId id)
