@@ -1,18 +1,11 @@
 ﻿using MirrorBot.Worker.Bot;
-using MirrorBot.Worker.Data;
 using MirrorBot.Worker.Data.Entities;
 using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Bson;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Telegram.Bot;
 using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
 
 namespace MirrorBot.Worker.Flow
 {
@@ -21,13 +14,13 @@ namespace MirrorBot.Worker.Flow
         private readonly MirrorBotsRepository _mirrorBots;
         private readonly UsersRepository _users;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly TelegramAdminNotifier _notifier;
+        private readonly IAdminNotifier _notifier;
 
         public BotFlowService(
             MirrorBotsRepository mirrorBots,
             UsersRepository users,
             IHttpClientFactory httpClientFactory,
-            TelegramAdminNotifier notifier
+            IAdminNotifier notifier
            )
         {
             _mirrorBots = mirrorBots;
@@ -82,11 +75,10 @@ namespace MirrorBot.Worker.Flow
 
             var cmd = CommandRouter.TryGetCommand(msg.Text);
 
-            //_notifier.TryEnqueue(AdminChannel.Info,
-            //    $"{DateTime.UtcNow:HH:mm:ss}\n" +
-            //    $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
-            //    $"text={msg.Text}\n" +
-            //    $"bot={lastBotKey}");
+            _notifier.TryEnqueue(AdminChannel.Info,
+                $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
+                $"{DateTime.UtcNow:HH:mm:ss}:{msg.Text}\n" +
+                $"@{ctx.BotUsername}");
 
             if (cmd == "/start")
             {

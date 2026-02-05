@@ -38,15 +38,21 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<BotFlowService>();
         services.AddSingleton<CommandRouter>();
 
-        //services.AddHostedService<BotManager>();
         services.AddSingleton<BotManager>();
         services.AddSingleton<IBotClientResolver>(sp => sp.GetRequiredService<BotManager>());
         services.AddHostedService(sp => sp.GetRequiredService<BotManager>());
 
-        ////логгирование в тг
-        services.AddSingleton<TelegramAdminNotifier>();
-        //services.AddSingleton<IAdminNotifier>(sp => sp.GetRequiredService<TelegramAdminNotifier>());
-        //services.AddHostedService(sp => sp.GetRequiredService<TelegramAdminNotifier>());
+        //////логгирование в тг
+        // клиент MAIN бота для админ-уведомлений
+        services.AddSingleton<ITelegramBotClient>(sp =>
+        {
+            var botToken = sp.GetRequiredService<IOptions<BotConfiguration>>().Value.BotToken;
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram");
+            return new TelegramBotClient(new TelegramBotClientOptions(botToken), http);
+        });
+
+        services.AddSingleton<IAdminNotifier, TelegramAdminNotifier>();
+        services.AddHostedService(sp => (TelegramAdminNotifier)sp.GetRequiredService<IAdminNotifier>());
         //логгирование в файл
         services.AddLogging(logging =>
             logging.AddFile("logs/mirrorbot-{Date}.txt",  // ← {Date} вместо -
