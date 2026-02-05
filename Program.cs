@@ -3,6 +3,7 @@ using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow;
+using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Driver;
 using Telegram.Bot;
 
@@ -12,6 +13,8 @@ IHost host = Host.CreateDefaultBuilder(args)
         //configs
         services.Configure<BotConfiguration>(context.Configuration.GetSection("BotConfiguration"));
         services.Configure<MongoConfiguration>(context.Configuration.GetSection("Mongo"));
+        services.Configure<AdminNotificationsConfiguration>(context.Configuration.GetSection("AdminNotifications"));
+
 
         //Mongo 
         services.AddSingleton<IMongoClient>(sp =>
@@ -34,16 +37,22 @@ IHost host = Host.CreateDefaultBuilder(args)
         
         services.AddSingleton<BotFlowService>();
         services.AddSingleton<CommandRouter>();
-        
-        services.AddHostedService<BotManager>();
-        
-        
+
+        //services.AddHostedService<BotManager>();
+        services.AddSingleton<BotManager>();
+        services.AddSingleton<IBotClientResolver>(sp => sp.GetRequiredService<BotManager>());
+        services.AddHostedService(sp => sp.GetRequiredService<BotManager>());
+
+        ////логгирование в тг
+        services.AddSingleton<TelegramAdminNotifier>();
+        //services.AddSingleton<IAdminNotifier>(sp => sp.GetRequiredService<TelegramAdminNotifier>());
+        //services.AddHostedService(sp => sp.GetRequiredService<TelegramAdminNotifier>());
         //логгирование в файл
         services.AddLogging(logging =>
             logging.AddFile("logs/mirrorbot-{Date}.txt",  // ← {Date} вместо -
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} | [{Level:u3}] | {SourceContext} | {Message:lj}:{Exception}{NewLine}",
                 fileSizeLimitBytes: 8_388_608,
-                retainedFileCountLimit: 31));
+                retainedFileCountLimit: 31));      
 
     })
     .Build();

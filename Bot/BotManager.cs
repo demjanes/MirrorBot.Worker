@@ -9,7 +9,7 @@ namespace MirrorBot.Worker.Bot
 {
     public sealed class BotManager : BackgroundService, IBotClientResolver
     {
-        private const string MainKey = "__main__";
+        public const string MainKey = "__main__";
 
         private readonly ILogger<BotManager> _log;
         private readonly ILoggerFactory _loggerFactory;
