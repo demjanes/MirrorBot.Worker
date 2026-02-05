@@ -45,7 +45,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                         cancellationToken: ct),
 
                 [BotRoutes.Commands.AddBot] = (ctx, client, msg, ct) =>
-                    client.SendMessage(msg.Chat.Id, BotUi.Text.AskBotToken, cancellationToken: ct),
+                    client.SendMessage(
+                        chatId: msg.Chat.Id,
+                        text: BotUi.Text.AskBotToken,
+                        cancellationToken: ct),
             };
         }
 
@@ -57,6 +60,7 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             if (msg.Text is null) return;
 
+            // 1) команды
             var cmd = TryGetCommand(msg.Text);
             if (cmd is not null && _commands.TryGetValue(cmd, out var action))
             {
@@ -64,18 +68,24 @@ namespace MirrorBot.Worker.Flow.Handlers
                 return;
             }
 
+            // 2) ввод токена (как раньше)
             if (LooksLikeToken(msg.Text))
             {
-                await TryAddMirrorBotByTokenAsync(ctx, client, msg, ct); // оставляем отдельным методом, тут зависимости
+                await TryAddMirrorBotByTokenAsync(client, msg, ct);
                 return;
             }
 
-            await client.SendMessage(msg.Chat.Id, BotUi.Text.Unknown, cancellationToken: ct);
+            // 3) дефолт — подсказка + меню
+            await client.SendMessage(
+                chatId: msg.Chat.Id,
+                text: BotUi.Text.Unknown,
+                replyMarkup: BotUi.Keyboards.MainMenu(),
+                cancellationToken: ct);                       
         }
 
 
         // --- Internals ---
-        private async Task TryAddMirrorBotByTokenAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
+        private async Task TryAddMirrorBotByTokenAsync(ITelegramBotClient client, Message msg, CancellationToken ct)
         {
             var token = msg.Text!;
             var existing = await _mirrorBots.GetByTokenAsync(token, ct);
@@ -87,7 +97,6 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             var http = _httpClientFactory.CreateClient("telegram");
             var probe = new TelegramBotClient(new TelegramBotClientOptions(token), http);
-
             var me = await probe.GetMe(ct);
 
             await _mirrorBots.InsertAsync(new MirrorBotEntity
@@ -98,7 +107,13 @@ namespace MirrorBot.Worker.Flow.Handlers
                 IsEnabled = true
             }, ct);
 
-            await client.SendMessage(msg.Chat.Id, BotUi.Text.MirrorAdded(me.Username!), cancellationToken: ct);
+            // После добавления — сразу меню "Мои боты"
+            await client.SendMessage(
+                chatId: msg.Chat.Id,
+                text: BotUi.Text.MirrorAdded(me.Username!),
+                replyMarkup: new Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup(
+                    Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("Мои боты", CbCodec.Pack("bot", "my"))),
+                cancellationToken: ct);
         }
 
         private Task UpsertSeenFromMessageAsync(BotContext ctx, Message msg, CancellationToken ct)

@@ -1,5 +1,6 @@
 ﻿using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Data.Entities;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace MirrorBot.Worker.Data.Repo
@@ -17,6 +18,15 @@ namespace MirrorBot.Worker.Data.Repo
         public Task<MirrorBotEntity?> GetByTokenAsync(string token, CancellationToken ct)
             => _col.Find(x => x.Token == token).FirstOrDefaultAsync(ct);
 
+        public Task<DeleteResult> DeleteByOdjectIdAsync(ObjectId id, CancellationToken ct)
+            => _col.DeleteOneAsync(x => x.Id == id, ct);
+
+        public Task<MirrorBotEntity?> GetByOdjectIdAsync(ObjectId botId, CancellationToken ct)
+           => _col.Find(x => x.Id == botId).FirstOrDefaultAsync(ct);
+
+        public Task<List<MirrorBotEntity>> GetByOwnerTgIdAsync(long ownerTgId, CancellationToken ct)
+            => _col.Find(x => x.OwnerTelegramUserId == ownerTgId).ToListAsync(ct);
+
         public async Task<MirrorBotEntity> InsertAsync(MirrorBotEntity entity, CancellationToken ct)
         {
             await _col.InsertOneAsync(entity, cancellationToken: ct);
@@ -30,5 +40,18 @@ namespace MirrorBot.Worker.Data.Repo
                     .Set(x => x.LastSeenAtUtc, lastSeenUtc)
                     .Set(x => x.LastError, lastError),
                 cancellationToken: ct);
+
+        public Task SetEnabledAsync(ObjectId botId, bool isEnabled, DateTime nowUtc, CancellationToken ct)
+        {
+            var filter = Builders<MirrorBotEntity>.Filter.Eq(x => x.Id, botId);
+
+            var update = Builders<MirrorBotEntity>.Update.Combine(
+                Builders<MirrorBotEntity>.Update.Set(x => x.IsEnabled, isEnabled),
+                Builders<MirrorBotEntity>.Update.Set(x => x.LastSeenAtUtc, nowUtc),
+                Builders<MirrorBotEntity>.Update.Set(x => x.LastError, null)
+            );
+
+            return _col.UpdateOneAsync(filter, update, cancellationToken: ct); // UpdateOneAsync + $set [web:229][web:524]
+        }
     }
 }
