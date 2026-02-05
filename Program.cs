@@ -3,6 +3,7 @@ using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow;
+using MirrorBot.Worker.Flow.Handlers;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Driver;
 using Telegram.Bot;
@@ -34,13 +35,15 @@ IHost host = Host.CreateDefaultBuilder(args)
 
         services.AddSingleton<MirrorBotsRepository>();
         services.AddSingleton<UsersRepository>();
-        
-        services.AddSingleton<BotFlowService>();
-        services.AddSingleton<CommandRouter>();
+
+        services.AddSingleton<BotMessageHandler>();
+        services.AddSingleton<BotCallbackHandler>();
+        services.AddSingleton<BotFlowService>();       
 
         services.AddSingleton<BotManager>();
         services.AddSingleton<IBotClientResolver>(sp => sp.GetRequiredService<BotManager>());
         services.AddHostedService(sp => sp.GetRequiredService<BotManager>());
+
 
         //////логгирование в тг
         // клиент MAIN бота для админ-уведомлений

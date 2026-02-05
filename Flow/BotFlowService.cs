@@ -2,6 +2,7 @@
 using MirrorBot.Worker.Data.Entities;
 using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Repo;
+using MirrorBot.Worker.Flow.Handlers;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Bson;
 using Telegram.Bot;
@@ -11,183 +12,24 @@ namespace MirrorBot.Worker.Flow
 {
     public sealed class BotFlowService
     {
-        private readonly MirrorBotsRepository _mirrorBots;
-        private readonly UsersRepository _users;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IAdminNotifier _notifier;
+        private readonly BotMessageHandler _messages;
+        private readonly BotCallbackHandler _callbacks;
 
-        public BotFlowService(
-            MirrorBotsRepository mirrorBots,
-            UsersRepository users,
-            IHttpClientFactory httpClientFactory,
-            IAdminNotifier notifier
-           )
+        public BotFlowService(BotMessageHandler messages, BotCallbackHandler callbacks)
         {
-            _mirrorBots = mirrorBots;
-            _users = users;
-            _httpClientFactory = httpClientFactory;
-            _notifier = notifier;
+            _messages = messages;
+            _callbacks = callbacks;
         }
 
-        public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, Update update, CancellationToken ct)
+        public Task HandleAsync(BotContext ctx, ITelegramBotClient client, Update update, CancellationToken ct)
         {
-            // 1) Message
             if (update.Message is { } msg)
-            {
-                await HandleMessageAsync(ctx, client, msg, ct);
-                return;
-            }
+                return _messages.HandleAsync(ctx, client, msg, ct);
 
-            // 2) CallbackQuery
             if (update.CallbackQuery is { } cq)
-            {
-                await HandleCallbackAsync(ctx, client, cq, ct);
-                return;
-            }
+                return _callbacks.HandleAsync(ctx, client, cq, ct);
 
-            // остальные типы апдейтов пока игнорируем
+            return Task.CompletedTask;
         }
-
-        private async Task HandleMessageAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
-        {
-            if (msg.From is null) return;
-            if (msg.Text is null) return;
-
-            var nowUtc = DateTime.UtcNow;
-            var lastBotKey = GetLastBotKey(ctx);
-
-            // реферал только для зеркал, и нельзя сам себе
-            var (refOwner, refBotId) = ComputeReferral(ctx, msg.From.Id);
-
-            var seen = new UserSeenEvent(
-                TgUserId: msg.From.Id,
-                TgUsername: msg.From.Username,
-                TgFirstName: msg.From.FirstName,
-                TgLastName: msg.From.LastName,
-                LastBotKey: lastBotKey,
-                LastChatId: msg.Chat.Id,
-                SeenAtUtc: nowUtc,
-                ReferrerOwnerTgUserId: refOwner,
-                ReferrerMirrorBotId: refBotId
-            );
-
-            await _users.UpsertSeenAsync(seen, ct);
-
-            var cmd = CommandRouter.TryGetCommand(msg.Text);
-
-            _notifier.TryEnqueue(AdminChannel.Info,
-                $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
-                $"{DateTime.UtcNow:HH:mm:ss}:{msg.Text}\n" +
-                $"@{ctx.BotUsername}");
-
-            if (cmd == "/start")
-            {
-                await client.SendMessage(
-                    chatId: msg.Chat.Id,
-                    text: $"Привет! Владелец этого зеркала: {ctx.OwnerTelegramUserId}",
-                    cancellationToken: ct);
-                return;
-            }
-
-            if (cmd == "/addbot")
-            {
-                await client.SendMessage(
-                    chatId: msg.Chat.Id,
-                    text: "Пришлите токен бота следующим сообщением.",
-                    cancellationToken: ct);
-                return;
-            }
-
-            // добавление зеркала по токену
-            if (LooksLikeToken(msg.Text))
-            {
-                var existing = await _mirrorBots.GetByTokenAsync(msg.Text, ct);
-                if (existing is not null)
-                {
-                    await client.SendMessage(msg.Chat.Id, "Этот токен уже добавлен.", cancellationToken: ct);
-                    return;
-                }
-
-                var http = _httpClientFactory.CreateClient("telegram");
-                var probe = new TelegramBotClient(new TelegramBotClientOptions(msg.Text), http);
-
-                var me = await probe.GetMe(ct);
-
-                await _mirrorBots.InsertAsync(new MirrorBotEntity
-                {
-                    OwnerTelegramUserId = msg.From.Id,
-                    Token = msg.Text,
-                    BotUsername = me.Username,
-                    IsEnabled = true
-                }, ct);
-
-                await client.SendMessage(msg.Chat.Id, $"Зеркало @{me.Username} добавлено. Оно запустится автоматически.", cancellationToken: ct);
-                return;
-            }
-
-            await client.SendMessage(msg.Chat.Id, "Не понял. /start /addbot", cancellationToken: ct);
-        }
-
-        private async Task HandleCallbackAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
-        {
-            if (cq.From is null) return;
-
-            // В большинстве сценариев callback приходит из сообщения с inline-клавиатурой, тогда chatId берём отсюда.
-            // Если вдруг cq.Message == null (inline message), то для твоего кейса "только личные чаты" можно fallback на From.Id.
-            var chatId = cq.Message?.Chat.Id ?? cq.From.Id;
-
-            var nowUtc = DateTime.UtcNow;
-            var lastBotKey = GetLastBotKey(ctx);
-
-            var (refOwner, refBotId) = ComputeReferral(ctx, cq.From.Id);
-
-            var seen = new UserSeenEvent(
-                TgUserId: cq.From.Id,
-                TgUsername: cq.From.Username,
-                TgFirstName: cq.From.FirstName,
-                TgLastName: cq.From.LastName,
-                LastBotKey: lastBotKey,
-                LastChatId: chatId,
-                SeenAtUtc: nowUtc,
-                ReferrerOwnerTgUserId: refOwner,
-                ReferrerMirrorBotId: refBotId
-            );
-
-            await _users.UpsertSeenAsync(seen, ct);
-
-            // Всегда "закрываем" callback, чтобы Telegram показал реакцию на нажатие
-            await client.AnswerCallbackQuery(
-                callbackQueryId: cq.Id,
-                text: "Ok",
-                cancellationToken: ct);
-
-            // Пример логики по данным кнопки
-            var data = cq.Data ?? string.Empty;
-
-            if (data == "ping")
-            {
-                await client.SendMessage(chatId, "pong", cancellationToken: ct);
-                return;
-            }
-
-            await client.SendMessage(chatId, $"Нажата кнопка: {data}", cancellationToken: ct);
-        }
-
-        private static string GetLastBotKey(BotContext ctx)
-            => ctx.MirrorBotId == ObjectId.Empty ? "__main__" : ctx.MirrorBotId.ToString();
-
-        private static (long? RefOwner, ObjectId? RefBotId) ComputeReferral(BotContext ctx, long currentUserId)
-        {
-            if (ctx.OwnerTelegramUserId == 0) return (null, null);
-            if (ctx.MirrorBotId == ObjectId.Empty) return (null, null);
-
-            // нельзя быть самому себе рефералом
-            if (currentUserId == ctx.OwnerTelegramUserId) return (null, null);
-
-            return (ctx.OwnerTelegramUserId, ctx.MirrorBotId);
-        }
-
-        private static bool LooksLikeToken(string text)
-            => text.Contains(':') && text.Length >= 20;
     }
 }
