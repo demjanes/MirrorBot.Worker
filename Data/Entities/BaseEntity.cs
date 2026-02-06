@@ -1,9 +1,9 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
-namespace MirrorBot.Worker.Data.Repo
+namespace MirrorBot.Worker.Data.Entities
 {
-    public abstract class BaseRepository
+    public abstract class BaseEntity
     {
         [BsonId]
         public ObjectId Id { get; set; }

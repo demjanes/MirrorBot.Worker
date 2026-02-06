@@ -3,8 +3,10 @@ using MirrorBot.Worker.Data.Entities;
 using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow.Routes;
+using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Bson;
+using Serilog.Context;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,6 +14,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MirrorBot.Worker.Flow.Handlers
 {
@@ -21,8 +24,6 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly MirrorBotsRepository _mirrorBots;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IAdminNotifier _notifier;
-
-        private readonly IReadOnlyDictionary<string, Func<BotContext, ITelegramBotClient, Message, CancellationToken, Task>> _commands;
 
         public BotMessageHandler(
             UsersRepository users,
@@ -34,55 +35,146 @@ namespace MirrorBot.Worker.Flow.Handlers
             _mirrorBots = mirrorBots;
             _httpClientFactory = httpClientFactory;
             _notifier = notifier;
-
-            _commands = new Dictionary<string, Func<BotContext, ITelegramBotClient, Message, CancellationToken, Task>>(StringComparer.OrdinalIgnoreCase)
-            {
-                [BotRoutes.Commands.Start] = (ctx, client, msg, ct) =>
-                    client.SendMessage(
-                        chatId: msg.Chat.Id,
-                        text: BotUi.Text.Start(ctx.OwnerTelegramUserId),
-                        replyMarkup: BotUi.Keyboards.MainMenu(),
-                        cancellationToken: ct),
-
-                [BotRoutes.Commands.AddBot] = (ctx, client, msg, ct) =>
-                    client.SendMessage(
-                        chatId: msg.Chat.Id,
-                        text: BotUi.Text.AskBotToken,
-                        cancellationToken: ct),
-            };
         }
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
         {
             if (msg.From is null) return;
-
-            await UpsertSeenFromMessageAsync(ctx, msg, ct);
-
             if (msg.Text is null) return;
 
-            // 1) команды
-            var cmd = TryGetCommand(msg.Text);
-            if (cmd is not null && _commands.TryGetValue(cmd, out var action))
+            var chatId = msg.Chat.Id;
+
+            var taskEntity = new TaskEntity()
             {
-                await action(ctx, client, msg, ct);
-                return;
+                botContext = ctx,
+                tGclient = client,
+                tGchatId = chatId,
+                tGmessage = msg,
+                tGuserText = msg.Text,
+            };
+
+            taskEntity = await UpsertSeen(taskEntity, ct);
+            if (taskEntity is null) return;
+
+
+            switch (taskEntity.tGuserText)
+            {
+                case BotRoutes.Commands.Start:
+                    {
+                        taskEntity.answerText = BotUi.Text.Start(taskEntity);
+                        taskEntity.answerKbrd = BotUi.Keyboards.StartR(taskEntity);
+                        await SendAsync(taskEntity, ct);
+                        return;
+                    }
+                case BotRoutes.Commands.HideKbrdTxt_Ru:
+                case BotRoutes.Commands.HideKbrdTxt_En:
+                    {
+                        taskEntity.answerText = BotUi.Text.HideKbrd(taskEntity);
+                        taskEntity.answerKbrd = new ReplyKeyboardRemove();
+                        await SendAsync(taskEntity, ct);
+                        return;
+                    }
+                case BotRoutes.Commands.HelpTxt_Ru:
+                case BotRoutes.Commands.HelpTxt_En:
+                case BotRoutes.Commands.Help:
+                    {
+                        taskEntity.answerText = BotUi.Text.Help(taskEntity);
+                        taskEntity.answerKbrd = BotUi.Keyboards.Help(taskEntity);
+                        await SendAsync(taskEntity, ct);
+                        return;
+                    }
+                case BotRoutes.Commands.MenuTxt_Ru:
+                case BotRoutes.Commands.MenuTxt_En:
+                case BotRoutes.Commands.Menu:
+                    {
+                        taskEntity.answerText = BotUi.Text.Menu(taskEntity);
+                        taskEntity.answerKbrd = BotUi.Keyboards.Menu(taskEntity);
+                        await SendAsync(taskEntity, ct);
+                        return;
+                    }
+                case BotRoutes.Commands.Ref:
+                    {
+                        taskEntity.answerText = BotUi.Text.Ref(taskEntity);
+                        taskEntity.answerKbrd = BotUi.Keyboards.Ref(taskEntity);
+                        await SendAsync(taskEntity, ct);
+                        return;
+                    }
+                default:
+                    {
+                        // 2) ввод токена (как раньше)
+                        if (LooksLikeToken(msg.Text))
+                        {
+                            await TryAddMirrorBotByTokenAsync(client, msg, ct);
+                            return;
+                        }
+
+                        //неизвестная команда
+                        taskEntity.answerText = BotUi.Text.Unknown(taskEntity);
+                        taskEntity.answerKbrd = BotUi.Keyboards.StartR(taskEntity);
+                        await SendAsync(taskEntity, ct);
+                        return;
+                    }
             }
 
-            // 2) ввод токена (как раньше)
-            if (LooksLikeToken(msg.Text))
-            {
-                await TryAddMirrorBotByTokenAsync(client, msg, ct);
-                return;
-            }
-
-            // 3) дефолт — подсказка + меню
-            await client.SendMessage(
-                chatId: msg.Chat.Id,
-                text: BotUi.Text.Unknown,
-                replyMarkup: BotUi.Keyboards.MainMenu(),
-                cancellationToken: ct);                       
         }
 
+        private static async Task SendAsync(TaskEntity entity, CancellationToken ct)
+        {
+            if (entity is null) return;
+            if (entity.tGclient is null) return;
+            if (entity.tGchatId is null) return;
+            if (entity.answerText is null) return;
+
+            await entity.tGclient.SendMessage(
+                chatId: entity.tGchatId,
+                text: entity.answerText,
+                replyMarkup: entity.answerKbrd,
+                cancellationToken: ct);
+        }
+
+
+        private async Task<TaskEntity?> UpsertSeen(TaskEntity entity, CancellationToken ct)
+        {
+            if (entity is null) return entity;
+            if (entity.botContext is null) return entity;
+            if (entity.tGmessage is null) return entity;
+            var from = entity.tGmessage.From;
+            if (from is null) return entity;
+
+            var nowUtc = DateTime.UtcNow;
+            var lastBotKey = entity.botContext.MirrorBotId == ObjectId.Empty ? "__main__" : entity.botContext.MirrorBotId.ToString();
+
+            long? refOwner = null;
+            ObjectId? refBotId = null;
+
+            // реферал только для зеркал + нельзя сам себе
+            if (entity.botContext.OwnerTelegramUserId != 0 && entity.botContext.MirrorBotId != ObjectId.Empty && from.Id != entity.botContext.OwnerTelegramUserId)
+            {
+                refOwner = entity.botContext.OwnerTelegramUserId;
+                refBotId = entity.botContext.MirrorBotId;
+            }
+
+            var seen = new UserSeenEvent(
+                TgUserId: from.Id,
+                TgUsername: from.Username,
+                TgFirstName: from.FirstName,
+                TgLastName: from.LastName,
+                TgLangCode: from.LanguageCode,
+                LastBotKey: lastBotKey,
+                LastChatId: entity.tGchatId,
+                SeenAtUtc: nowUtc,
+                ReferrerOwnerTgUserId: refOwner,
+                ReferrerMirrorBotId: refBotId
+            );
+
+            _notifier.TryEnqueue(AdminChannel.Info,
+                $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
+                $"{entity.tGmessage.Text}\n" +
+                $"@{entity.botContext.BotUsername}");
+
+            entity.userEntity = await _users.UpsertSeenAsync(seen, ct);
+            return entity;
+        }
 
         // --- Internals ---
         private async Task TryAddMirrorBotByTokenAsync(ITelegramBotClient client, Message msg, CancellationToken ct)
@@ -99,68 +191,27 @@ namespace MirrorBot.Worker.Flow.Handlers
             var probe = new TelegramBotClient(new TelegramBotClientOptions(token), http);
             var me = await probe.GetMe(ct);
 
-            await _mirrorBots.InsertAsync(new MirrorBotEntity
+
+            var mirror = new MirrorBotEntity
             {
                 OwnerTelegramUserId = msg.From!.Id,
                 Token = token,
                 BotUsername = me.Username,
                 IsEnabled = true
-            }, ct);
+            };
 
-            // После добавления — сразу меню "Мои боты"
-            await client.SendMessage(
-                chatId: msg.Chat.Id,
-                text: BotUi.Text.MirrorAdded(me.Username!),
-                replyMarkup: new Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup(
-                    Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("Мои боты", CbCodec.Pack("bot", "my"))),
-                cancellationToken: ct);
+            await _mirrorBots.InsertAsync(mirror, ct);
+
+            var chatId = msg.Chat.Id;
+            var taskEntity = new TaskEntity() { 
+                tGclient = client,
+                tGchatId = chatId,
+                mirrorBotEntity = mirror 
+            };
+            taskEntity.answerText = BotUi.Text.BotAddResult(taskEntity);
+            taskEntity.answerKbrd = BotUi.Keyboards.BotAddResult(taskEntity);
+            await SendAsync(taskEntity, ct);
         }
-
-        private Task UpsertSeenFromMessageAsync(BotContext ctx, Message msg, CancellationToken ct)
-        {
-            var nowUtc = DateTime.UtcNow;
-            var lastBotKey = ctx.MirrorBotId == ObjectId.Empty ? "__main__" : ctx.MirrorBotId.ToString();
-
-            long? refOwner = null;
-            ObjectId? refBotId = null;
-
-            // реферал только для зеркал + нельзя сам себе
-            if (ctx.OwnerTelegramUserId != 0 && ctx.MirrorBotId != ObjectId.Empty && msg.From!.Id != ctx.OwnerTelegramUserId)
-            {
-                refOwner = ctx.OwnerTelegramUserId;
-                refBotId = ctx.MirrorBotId;
-            }
-
-            var seen = new UserSeenEvent(
-                TgUserId: msg.From!.Id,
-                TgUsername: msg.From.Username,
-                TgFirstName: msg.From.FirstName,
-                TgLastName: msg.From.LastName,
-                LastBotKey: lastBotKey,
-                LastChatId: msg.Chat.Id,
-                SeenAtUtc: nowUtc,
-                ReferrerOwnerTgUserId: refOwner,
-                ReferrerMirrorBotId: refBotId
-            );
-
-            _notifier.TryEnqueue(AdminChannel.Info,
-                $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
-                $"{msg.Text}\n" +
-                $"@{ctx.BotUsername}");
-
-
-            return _users.UpsertSeenAsync(seen, ct);
-        }
-
-        private static string? TryGetCommand(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return null;
-            if (!text.StartsWith('/')) return null;
-
-            var first = text.Split(' ', '\n', '\t')[0];
-            return first.Split('@')[0];
-        }
-
         private static bool LooksLikeToken(string text)
             => text.Contains(':') && text.Length >= 20;
     }

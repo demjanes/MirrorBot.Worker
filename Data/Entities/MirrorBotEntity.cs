@@ -1,5 +1,4 @@
-﻿using MirrorBot.Worker.Data.Repo;
-using MongoDB.Bson;
+﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using System;
 using System.Collections.Generic;
@@ -9,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Data.Entities
 {
-    public sealed class MirrorBotEntity : BaseRepository
+    public sealed class MirrorBotEntity : BaseEntity
     {      
         public long OwnerTelegramUserId { get; set; }
 

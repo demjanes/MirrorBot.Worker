@@ -1,16 +1,19 @@
-﻿using MirrorBot.Worker.Data.Repo;
+﻿using MirrorBot.Worker.Data.Enums;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace MirrorBot.Worker.Data.Entities
 {
-    public sealed class UserEntity : BaseRepository
+    public sealed class UserEntity : BaseEntity
     {        
         public long TgUserId { get; set; }
         public string? TgUsername { get; set; }       
         public string? TgFirstName { get; set; }       
         public string? TgLastName { get; set; }
 
+        [BsonRepresentation(BsonType.String)]
+        public UiLang PreferredLang { get; set; } = UiLang.Def;
+        public string? TgLangCode { get; set; }  // from.language_code (например "ru-RU") [web:81]
 
         public string? LastBotKey { get; set; }      // например "__main__" или mirrorBotId.ToString()
         public long? LastChatId { get; set; }        // сохраняй msg.Chat.Id

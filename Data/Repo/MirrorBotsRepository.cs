@@ -41,7 +41,7 @@ namespace MirrorBot.Worker.Data.Repo
                     .Set(x => x.LastError, lastError),
                 cancellationToken: ct);
 
-        public Task SetEnabledAsync(ObjectId botId, bool isEnabled, DateTime nowUtc, CancellationToken ct)
+        public async Task<MirrorBotEntity?> SetEnabledAsync(ObjectId botId, bool isEnabled, DateTime nowUtc, CancellationToken ct)
         {
             var filter = Builders<MirrorBotEntity>.Filter.Eq(x => x.Id, botId);
 
@@ -50,8 +50,13 @@ namespace MirrorBot.Worker.Data.Repo
                 Builders<MirrorBotEntity>.Update.Set(x => x.LastSeenAtUtc, nowUtc),
                 Builders<MirrorBotEntity>.Update.Set(x => x.LastError, null)
             );
+                        
+            var options = new FindOneAndUpdateOptions<MirrorBotEntity>
+            {
+                ReturnDocument = ReturnDocument.After
+            };
 
-            return _col.UpdateOneAsync(filter, update, cancellationToken: ct); // UpdateOneAsync + $set [web:229][web:524]
+            return await _col.FindOneAndUpdateAsync(filter, update, options, ct);
         }
     }
 }

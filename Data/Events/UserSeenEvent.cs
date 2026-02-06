@@ -12,8 +12,9 @@ namespace MirrorBot.Worker.Data.Events
     string? TgUsername,
     string? TgFirstName,
     string? TgLastName,
-    string LastBotKey,
-    long LastChatId,
+    string? TgLangCode,
+    string? LastBotKey,
+    long? LastChatId,
     DateTime SeenAtUtc,
     long? ReferrerOwnerTgUserId,
     ObjectId? ReferrerMirrorBotId

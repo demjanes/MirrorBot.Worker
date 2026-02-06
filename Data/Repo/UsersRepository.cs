@@ -1,5 +1,6 @@
 ﻿using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Data.Entities;
+using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Events;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -57,7 +58,7 @@ namespace MirrorBot.Worker.Data.Repo
                 cancellationToken: ct);
 
 
-        public Task UpsertSeenAsync(UserSeenEvent e, CancellationToken ct)
+        public async Task<UserEntity?> UpsertSeenAsync(UserSeenEvent e, CancellationToken ct)
         {
             var filter = Builders<UserEntity>.Filter.Eq(x => x.TgUserId, e.TgUserId);
 
@@ -71,6 +72,9 @@ namespace MirrorBot.Worker.Data.Repo
                 Builders<UserEntity>.Update.Set(x => x.TgUsername, e.TgUsername),
                 Builders<UserEntity>.Update.Set(x => x.TgFirstName, e.TgFirstName),
                 Builders<UserEntity>.Update.Set(x => x.TgLastName, e.TgLastName),
+
+                //язык
+                Builders<UserEntity>.Update.Set(x => x.TgLangCode, e.TgLangCode),
 
                 // last-active (для рассылки)
                 Builders<UserEntity>.Update.Set(x => x.LastBotKey, e.LastBotKey),
@@ -87,11 +91,40 @@ namespace MirrorBot.Worker.Data.Repo
 
             var update = Builders<UserEntity>.Update.Combine(updates);
 
-            return _col.UpdateOneAsync(
+            return await _col.FindOneAndUpdateAsync(
                 filter,
                 update,
-                new UpdateOptions { IsUpsert = true },
+                new FindOneAndUpdateOptions<UserEntity>
+                {
+                    IsUpsert = true,
+                    ReturnDocument = ReturnDocument.After, 
+                },
                 ct);
+        }
+
+        public async Task<UiLang> GetPreferredLangAsync(long tgUserId, CancellationToken ct)
+        {
+            var u = await _col.Find(x => x.TgUserId == tgUserId)
+                              .Project(x => x.PreferredLang)
+                              .FirstOrDefaultAsync(ct);
+            return u;
+        }
+
+        public async Task<UserEntity?> SetPreferredLangAsync(long tgUserId, UiLang lang, DateTime nowUtc, CancellationToken ct)
+        {    
+            var filter = Builders<UserEntity>.Filter.Eq(x => x.TgUserId, tgUserId);
+
+            var update = Builders<UserEntity>.Update
+                .Set(x => x.PreferredLang, lang)
+                .Set(x => x.LastMessageAtUtc, nowUtc);
+
+            var options = new FindOneAndUpdateOptions<UserEntity>
+            {
+                IsUpsert = true,
+                ReturnDocument = ReturnDocument.After
+            };
+
+            return await _col.FindOneAndUpdateAsync(filter, update, options, ct);
         }
     }
 }
