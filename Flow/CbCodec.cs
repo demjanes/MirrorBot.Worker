@@ -6,7 +6,12 @@ using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Flow
 {
-    public readonly record struct Cb(string Section, string Action, string[] Args);
+    public class CbData(string section, string action, string[] args)
+    {
+        public string Section { get; set; } = section;
+        public string Action { get; set; } = action;
+        public string[] Args { get; set; } = args;
+    }
 
     public static class CbCodec
     {
@@ -23,7 +28,7 @@ namespace MirrorBot.Worker.Flow
             return s;
         }
 
-        public static Cb? TryUnpack(string? data)
+        public static CbData? TryUnpack(string? data)
         {
             if (string.IsNullOrWhiteSpace(data)) return null;
 
@@ -34,7 +39,7 @@ namespace MirrorBot.Worker.Flow
             var action = parts[1];
             var args = parts.Length > 2 ? parts[2..] : Array.Empty<string>();
 
-            return new Cb(section, action, args);
+            return new CbData(section, action, args);
         }
     }
 }

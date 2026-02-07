@@ -7,8 +7,6 @@ using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MongoDB.Bson;
-using SharpCompress.Common;
-using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -35,13 +33,14 @@ namespace MirrorBot.Worker.Flow.Handlers
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
         {
-            if (cq.Data is null) return;
-            var parsed = CbCodec.TryUnpack(cq.Data);
-            if (parsed is null) return;
+            if (string.IsNullOrEmpty(cq.Data)) return;
+
+            var cb = CbCodec.TryUnpack(cq.Data);
+            if (cb is null) return;
 
             var chatId = cq.Message?.Chat.Id ?? cq.From.Id;
 
-            var taskEntity = new TaskEntity()
+            var t = new TaskEntity
             {
                 botContext = ctx,
                 tGclient = client,
@@ -49,281 +48,228 @@ namespace MirrorBot.Worker.Flow.Handlers
                 tGcallbackQuery = cq,
             };
 
-            taskEntity = await UpsertSeen(taskEntity, ct);
-            if (taskEntity is null) return;
-
-            var cb = parsed.Value;
+            await UpsertSeenAsync(t, ct);
 
             // Чтобы "часики" не крутились
             await client.AnswerCallbackQuery(cq.Id, cancellationToken: ct);
 
-            ////MENU
-            if (cb.Section.Equals(BotRoutes.Callbacks.Menu._section, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(cb.Section, BotRoutes.Callbacks.Menu._section, StringComparison.OrdinalIgnoreCase))
             {
-                switch (cb.Action)
-                {
-
-                    case string s when s.Equals(BotRoutes.Callbacks.Menu.MenuMainAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            taskEntity.answerText = BotUi.Text.Menu(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.Menu(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Menu.HelpAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            taskEntity.answerText = BotUi.Text.Help(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.Help(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Menu.RefAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            taskEntity.answerText = BotUi.Text.Ref(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.Ref(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                }
+                await HandleMenuAsync(t, cb, ct);
+                return;
             }
 
-            //LANGUAGE
-            if (cb.Section.Equals(BotRoutes.Callbacks.Lang._section, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(cb.Section, BotRoutes.Callbacks.Lang._section, StringComparison.OrdinalIgnoreCase))
             {
-                switch (cb.Action)
-                {
-                    case string s when s.Equals(BotRoutes.Callbacks.Lang.ChooseAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            taskEntity.answerText = BotUi.Text.LangChoose(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.LangChoose(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-
-                    case string s when s.Equals(BotRoutes.Callbacks.Lang.SetAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            var newLang = UiLangExt.ParseOrDefault(cb.Args.ElementAtOrDefault(0), UiLang.Ru);
-                            taskEntity.userEntity = await _users.SetPreferredLangAsync(cq.From.Id, newLang, DateTime.UtcNow, ct);
-
-                            taskEntity.answerText = BotUi.Text.LangSet(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.LangChoose(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                }
+                await HandleLangAsync(t, cb, ct);
+                return;
             }
 
-            //BOTS
-            if (cb.Section.Equals(BotRoutes.Callbacks.Bot._section, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(cb.Section, BotRoutes.Callbacks.Bot._section, StringComparison.OrdinalIgnoreCase))
             {
-                switch (cb.Action)
-                {
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.AddAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            taskEntity.answerText = BotUi.Text.BotAdd(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.MyAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            var ownerId = cq.From.Id;
-                            var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct);
+                await HandleBotsAsync(t, cb, ct);
+                return;
+            }
 
-                            var items = bots.Select(b => new BotListItem(
-                                Id: b.Id.ToString(),
-                                Title: "@" + (b.BotUsername ?? "unknown"),
-                                IsEnabled: b.IsEnabled)).ToList();
-
-                            var text = items.Count == 0 ? "У вас пока нет ботов." : "Ваши боты:";
-
-
-                            taskEntity.answerText = BotUi.Text.BotsMy(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, items);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.EditAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            if (!TryGetObjectId(cb.Args, 0, out var botId)) return;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-                            if (taskEntity.mirrorBotEntity is null)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNotFound(taskEntity);
-                                taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-                            // security check: только владелец
-                            //TODO добавить оповещение типа АЛАРМ
-                            if (taskEntity.mirrorBotEntity.OwnerTelegramUserId != cq.From.Id)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNoAccess(taskEntity);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-
-
-
-                            taskEntity.answerText = BotUi.Text.BotEdit(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotEdit(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.StopAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            if (!TryGetObjectId(cb.Args, 0, out var botId)) return;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-                            if (taskEntity.mirrorBotEntity is null)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNotFound(taskEntity);
-                                taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-                            // security check: только владелец
-                            //TODO добавить оповещение типа АЛАРМ
-                            if (taskEntity.mirrorBotEntity.OwnerTelegramUserId != cq.From.Id)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNoAccess(taskEntity);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }                           
-
-                            var nowUtc = DateTime.UtcNow;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.SetEnabledAsync(botId, false, nowUtc, ct);
-                            taskEntity.answerText = BotUi.Text.BotEdit(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotEdit(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.StartAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            if (!TryGetObjectId(cb.Args, 0, out var botId)) return;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-                            if (taskEntity.mirrorBotEntity is null)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNotFound(taskEntity);
-                                taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-                            // security check: только владелец
-                            //TODO добавить оповещение типа АЛАРМ
-                            if (taskEntity.mirrorBotEntity.OwnerTelegramUserId != cq.From.Id)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNoAccess(taskEntity);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-
-                            var nowUtc = DateTime.UtcNow;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.SetEnabledAsync(botId, true, nowUtc, ct);
-                            taskEntity.answerText = BotUi.Text.BotEdit(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotEdit(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.DeleteAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            if (!TryGetObjectId(cb.Args, 0, out var botId)) return;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-                            if (taskEntity.mirrorBotEntity is null)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNotFound(taskEntity);
-                                taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-                            // security check: только владелец
-                            //TODO добавить оповещение типа АЛАРМ
-                            if (taskEntity.mirrorBotEntity.OwnerTelegramUserId != cq.From.Id)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNoAccess(taskEntity);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-
-                            taskEntity.answerText = BotUi.Text.BotDeleteConfirm(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotDeleteConfirm(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.DeleteYesAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            if (!TryGetObjectId(cb.Args, 0, out var botId)) return;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-                            if (taskEntity.mirrorBotEntity is null)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNotFound(taskEntity);
-                                taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-                            // security check: только владелец
-                            //TODO добавить оповещение типа АЛАРМ
-                            if (taskEntity.mirrorBotEntity.OwnerTelegramUserId != cq.From.Id)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNoAccess(taskEntity);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-
-                            await _mirrorBots.DeleteByOdjectIdAsync(botId, ct);
-
-                            taskEntity.answerText = BotUi.Text.BotDeleteYesResult(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    case string s when s.Equals(BotRoutes.Callbacks.Bot.DeleteNoAction, StringComparison.OrdinalIgnoreCase):
-                        {
-                            if (!TryGetObjectId(cb.Args, 0, out var botId)) return;
-                            taskEntity.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-                            if (taskEntity.mirrorBotEntity is null)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNotFound(taskEntity);
-                                taskEntity.answerKbrd = BotUi.Keyboards.BotsMy(taskEntity, null);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-                            // security check: только владелец
-                            //TODO добавить оповещение типа АЛАРМ
-                            if (taskEntity.mirrorBotEntity.OwnerTelegramUserId != cq.From.Id)
-                            {
-                                taskEntity.answerText = BotUi.Text.BotEditNoAccess(taskEntity);
-                                await SendOrEditAsync(taskEntity, ct);
-                                return;
-                            }
-
-                            taskEntity.answerText = BotUi.Text.BotEdit(taskEntity);
-                            taskEntity.answerKbrd = BotUi.Keyboards.BotEdit(taskEntity);
-                            await SendOrEditAsync(taskEntity, ct);
-                            return;
-                        }
-                    default:
-                        {
-                            return;
-                        }
-
-                }
-            }          
         }
 
+        private async Task HandleMenuAsync(TaskEntity t, CbData cb, CancellationToken ct)
+        {
+            switch (cb.Action)
+            {
+                case string s when s.Equals(BotRoutes.Callbacks.Menu.MenuMainAction, StringComparison.OrdinalIgnoreCase):
+                    t.answerText = BotUi.Text.Menu(t);
+                    t.answerKbrd = BotUi.Keyboards.Menu(t);
+                    await SendOrEditAsync(t, ct);
+                    return;
+
+                case string s when s.Equals(BotRoutes.Callbacks.Menu.HelpAction, StringComparison.OrdinalIgnoreCase):
+                    t.answerText = BotUi.Text.Help(t);
+                    t.answerKbrd = BotUi.Keyboards.Help(t);
+                    await SendOrEditAsync(t, ct);
+                    return;
+
+                case string s when s.Equals(BotRoutes.Callbacks.Menu.RefAction, StringComparison.OrdinalIgnoreCase):
+                    t.answerText = BotUi.Text.Ref(t);
+                    t.answerKbrd = BotUi.Keyboards.Ref(t);
+                    await SendOrEditAsync(t, ct);
+                    return;
+
+                default:
+                    return;
+            }
+        }
+
+        private async Task HandleLangAsync(TaskEntity t, CbData cb, CancellationToken ct)
+        {
+            switch (cb.Action)
+            {
+                case string s when s.Equals(BotRoutes.Callbacks.Lang.ChooseAction, StringComparison.OrdinalIgnoreCase):
+                    t.answerText = BotUi.Text.LangChoose(t);
+                    t.answerKbrd = BotUi.Keyboards.LangChoose(t);
+                    await SendOrEditAsync(t, ct);
+                    return;
+
+                case string s when s.Equals(BotRoutes.Callbacks.Lang.SetAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var args = cb.Args ?? Array.Empty<string>();
+                        var newLang = UiLangExt.ParseOrDefault(args.ElementAtOrDefault(0), UiLang.Ru);
+
+                        t.userEntity = await _users.SetPreferredLangAsync(
+                            t.tGcallbackQuery!.From.Id,
+                            newLang,
+                            DateTime.UtcNow,
+                            ct);
+
+                        t.answerText = BotUi.Text.LangSet(t);
+                        t.answerKbrd = BotUi.Keyboards.LangChoose(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                default:
+                    return;
+            }
+        }
+
+        private async Task HandleBotsAsync(TaskEntity t, CbData cb, CancellationToken ct)
+        {
+            switch (cb.Action)
+            {
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.AddAction, StringComparison.OrdinalIgnoreCase):
+                    t.answerText = BotUi.Text.BotAdd(t);
+                    await SendOrEditAsync(t, ct);
+                    return;
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.MyAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var ownerId = t.tGcallbackQuery!.From.Id;
+                        var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct);
+
+                        var items = bots.Select(b => new BotListItem(
+                            Id: b.Id.ToString(),
+                            Title: "@" + (b.BotUsername ?? "unknown"),
+                            IsEnabled: b.IsEnabled)).ToList();
+
+                        t.answerText = BotUi.Text.BotsMy(t);
+                        t.answerKbrd = BotUi.Keyboards.BotsMy(t, items);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.EditAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
+
+                        t.answerText = BotUi.Text.BotEdit(t);
+                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.StopAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
+
+                        var nowUtc = DateTime.UtcNow;
+                        t.mirrorBotEntity = await _mirrorBots.SetEnabledAsync(t.mirrorBotEntity!.Id, false, nowUtc, ct);
+
+                        t.answerText = BotUi.Text.BotEdit(t);
+                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.StartAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
+
+                        var nowUtc = DateTime.UtcNow;
+                        t.mirrorBotEntity = await _mirrorBots.SetEnabledAsync(t.mirrorBotEntity!.Id, true, nowUtc, ct);
+
+                        t.answerText = BotUi.Text.BotEdit(t);
+                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.DeleteAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
+
+                        t.answerText = BotUi.Text.BotDeleteConfirm(t);
+                        t.answerKbrd = BotUi.Keyboards.BotDeleteConfirm(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.DeleteYesAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
+
+                        await _mirrorBots.DeleteByOdjectIdAsync(t.mirrorBotEntity!.Id, ct);
+
+                        t.answerText = BotUi.Text.BotDeleteYesResult(t);
+                        t.answerKbrd = BotUi.Keyboards.BotsMy(t, null);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Bot.DeleteNoAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
+
+                        t.answerText = BotUi.Text.BotEdit(t);
+                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                default:
+                    return;
+            }
+        }
+
+        private async Task<bool> TryLoadOwnedBotAsync(TaskEntity t, CbData cb, int index, CancellationToken ct)
+        {
+            var args = cb.Args ?? Array.Empty<string>();
+
+            if (!TryGetObjectId(args, index, out var botId))
+                return false;
+
+            t.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
+            if (t.mirrorBotEntity is null)
+            {
+                t.answerText = BotUi.Text.BotEditNotFound(t);
+                t.answerKbrd = BotUi.Keyboards.BotsMy(t, null);
+                await SendOrEditAsync(t, ct);
+                return false;
+            }
+
+            // security check: только владелец
+            if (t.mirrorBotEntity.OwnerTelegramUserId != t.tGcallbackQuery!.From.Id)
+            {
+                t.answerText = BotUi.Text.BotEditNoAccess(t);
+                await SendOrEditAsync(t, ct);
+                return false;
+            }
+
+            return true;
+        }
 
         private static async Task SendOrEditAsync(TaskEntity entity, CancellationToken ct)
         {
-            if (entity is null) return;
-            if (entity.tGclient is null) return;
-            if (entity.tGchatId is null) return;
-            if (entity.answerText is null) return;
+            if (entity?.tGclient is null) return;
             if (entity.tGcallbackQuery is null) return;
+            if (entity.answerText is null) return;
 
+            var chatId = entity.tGchatId ?? entity.tGcallbackQuery.From.Id;
 
-
+            // Если callback без Message (редко), отправляем новое сообщение
             if (entity.tGcallbackQuery.Message is not { } m)
             {
                 await entity.tGclient.SendMessage(
-                    chatId: entity.tGchatId,
+                    chatId: chatId,
                     text: entity.answerText,
                     replyMarkup: entity.answerKbrd,
                     cancellationToken: ct);
@@ -333,19 +279,17 @@ namespace MirrorBot.Worker.Flow.Handlers
             try
             {
                 await entity.tGclient.EditMessageText(
-                    chatId: entity.tGchatId,
+                    chatId: m.Chat.Id,
                     messageId: m.MessageId,
                     text: entity.answerText,
                     replyMarkup: entity.answerKbrd as InlineKeyboardMarkup,
                     cancellationToken: ct);
             }
             catch (ApiRequestException ex) when (
-                ex.Message.Contains("message can't be edited", StringComparison.OrdinalIgnoreCase) ||  // [web:540]
-                ex.Message.Contains("message not found", StringComparison.OrdinalIgnoreCase) ||
-                ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))  // [web:565]
+                ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("message can't be edited", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("message not found", StringComparison.OrdinalIgnoreCase))
             {
-                // Если "not modified" — можно вообще ничего не делать, но fallback тоже не критичен.
-                // Если "can't be edited"/"not found" — шлём новое сообщение.
                 if (ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
                     return;
 
@@ -357,30 +301,31 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-
         private static bool TryGetObjectId(string[] args, int index, out ObjectId id)
         {
             id = ObjectId.Empty;
+            if (args is null) return false;
             if (args.Length <= index) return false;
             return ObjectId.TryParse(args[index], out id);
         }
 
-        private async Task<TaskEntity?> UpsertSeen(TaskEntity entity, CancellationToken ct)
+        private async Task UpsertSeenAsync(TaskEntity entity, CancellationToken ct)
         {
-            if (entity is null) return entity;
-            if (entity.botContext is null) return entity;
-            if (entity.tGcallbackQuery is null) return entity;
-            var from = entity.tGcallbackQuery.From;
-            if (from is null) return entity;
+            if (entity?.botContext is null) return;
+            if (entity.tGcallbackQuery?.From is not { } from) return;
 
             var nowUtc = DateTime.UtcNow;
-            var lastBotKey = entity.botContext.MirrorBotId == ObjectId.Empty ? "__main__" : entity.botContext.MirrorBotId.ToString();
 
+            var lastBotKey = entity.botContext.MirrorBotId == ObjectId.Empty
+                ? "__main__"
+                : entity.botContext.MirrorBotId.ToString();
 
             long? refOwner = null;
             ObjectId? refBotId = null;
 
-            if (entity.botContext.OwnerTelegramUserId != 0 && entity.botContext.MirrorBotId != ObjectId.Empty && from.Id != entity.botContext.OwnerTelegramUserId)
+            if (entity.botContext.OwnerTelegramUserId != 0 &&
+                entity.botContext.MirrorBotId != ObjectId.Empty &&
+                from.Id != entity.botContext.OwnerTelegramUserId)
             {
                 refOwner = entity.botContext.OwnerTelegramUserId;
                 refBotId = entity.botContext.MirrorBotId;
@@ -399,41 +344,13 @@ namespace MirrorBot.Worker.Flow.Handlers
                 ReferrerMirrorBotId: refBotId
             );
 
-            _notifier.TryEnqueue(AdminChannel.Info,
-               $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
-               $"/{entity.tGcallbackQuery.Data}\n" +
-               $"@{entity.botContext.BotUsername}");
+            _notifier.TryEnqueue(
+                AdminChannel.Info,
+                $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
+                $"/{entity.tGcallbackQuery.Data}\n" +
+                $"@{entity.botContext.BotUsername}");
 
             entity.userEntity = await _users.UpsertSeenAsync(seen, ct);
-            return entity;
-        }
-
-        private async Task<UiLang> ResolveLangAsync(CallbackQuery cq, CancellationToken ct)
-        {
-            // 1) Язык, который пользователь выбрал сам (приоритет)
-            var preferred = await _users.GetPreferredLangAsync(cq.From.Id, ct);
-            if (preferred is not UiLang.Def)
-                return preferred;
-
-            // 2) Фолбэк: язык Telegram клиента (IETF language tag, может быть "ru" или "ru-RU") [web:81]
-            var lc = cq.From.LanguageCode; // string? (может быть null) [web:81]
-            if (!string.IsNullOrWhiteSpace(lc))
-            {
-                var normalized = lc.Trim().ToLowerInvariant();
-
-                // берём базовый язык из тега: "ru-RU" -> "ru"
-                var baseCode = normalized.Split('-', '_')[0];
-
-                return baseCode switch
-                {
-                    "ru" => UiLang.Ru,
-                    "en" => UiLang.En,
-                    _ => UiLang.Ru
-                };
-            }
-
-            // 3) Дефолт
-            return UiLang.Ru;
         }
     }
 }
