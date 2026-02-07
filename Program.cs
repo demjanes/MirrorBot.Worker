@@ -5,6 +5,7 @@ using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow;
 using MirrorBot.Worker.Flow.Handlers;
 using MirrorBot.Worker.Services.AdminNotifierService;
+using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Driver;
 using Telegram.Bot;
 
@@ -16,6 +17,18 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.Configure<MongoConfiguration>(context.Configuration.GetSection("Mongo"));
         services.Configure<AdminNotificationsConfiguration>(context.Configuration.GetSection("AdminNotifications"));
 
+        //шифрование токенов пользователей
+        services.AddSingleton<ITokenEncryptionService>(sp =>
+        {
+            var encryptionKey = sp.GetRequiredService<IConfiguration>()
+                .GetSection("BotConfiguration")
+                .GetValue<string>("EncryptionKey");
+
+            if (string.IsNullOrWhiteSpace(encryptionKey))
+                throw new InvalidOperationException("EncryptionKey not configured!");
+
+            return new TokenEncryptionService(encryptionKey);
+        });
 
         //Mongo 
         services.AddSingleton<IMongoClient>(sp =>
@@ -30,6 +43,8 @@ IHost host = Host.CreateDefaultBuilder(args)
             return client.GetDatabase(opt.Database);
         });
         
+
+
         //registrations
         services.AddHttpClient("telegram").RemoveAllLoggers();
 

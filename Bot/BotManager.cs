@@ -2,6 +2,7 @@
 using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow;
+using MirrorBot.Worker.Services.TokenEncryption;
 using System.Collections.Concurrent;
 using Telegram.Bot;
 
@@ -17,6 +18,7 @@ namespace MirrorBot.Worker.Bot
         private readonly BotFlowService _flow;
         private readonly IOptions<BotConfiguration> _mainOpt;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ITokenEncryptionService _tokenEncryption;
 
         private readonly ConcurrentDictionary<string, BotRunner> _runners = new();
 
@@ -26,7 +28,8 @@ namespace MirrorBot.Worker.Bot
             MirrorBotsRepository repo,
             BotFlowService flow,
             IOptions<BotConfiguration> mainOpt,
-            IHttpClientFactory httpClientFactory
+            IHttpClientFactory httpClientFactory,
+            ITokenEncryptionService tokenEncryption
             )
         {
             _loggerFactory = loggerFactory;
@@ -36,6 +39,7 @@ namespace MirrorBot.Worker.Bot
             _flow = flow;
             _mainOpt = mainOpt;
             _httpClientFactory = httpClientFactory;
+            _tokenEncryption = tokenEncryption;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -53,7 +57,7 @@ namespace MirrorBot.Worker.Bot
                     var key = b.Id.ToString();
                     if (_runners.ContainsKey(key)) continue;
 
-                    TryStartMirror(key, new BotContext(b.Id, b.OwnerTelegramUserId, b.Token, b.BotUsername));
+                    TryStartMirror(key, new BotContext(b.Id, b.OwnerTelegramUserId, b.EncryptedToken, b.BotUsername));
                 }
 
                 // стоп отключённых/удалённых
@@ -100,7 +104,30 @@ namespace MirrorBot.Worker.Bot
         {
             // дедуп: TryAdd -> только победитель стартует
             var http = _httpClientFactory.CreateClient("telegram");
-            var client = new TelegramBotClient(new TelegramBotClientOptions(ctx.Token), http); // можно так, конструктор поддерживается [web:59]
+
+            string plainToken;
+
+            // Проверяем, зашифрован ли токен или это открытый токен основного бота
+            if (IsEncryptedToken(ctx.Token))
+            {
+                // Это зеркало с зашифрованным токеном
+                try
+                {
+                    plainToken = _tokenEncryption.Decrypt(ctx.Token);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "Failed to decrypt token for bot {BotKey}. Bot will not start.", key);
+                    return;
+                }
+            }
+            else
+            {
+                // Это основной бот с открытым токеном из конфига
+                plainToken = ctx.Token;
+            }
+
+            var client = new TelegramBotClient(new TelegramBotClientOptions(plainToken), http); // можно так, конструктор поддерживается [web:59]
 
             var handler = new BotUpdateHandler(ctx, _flow, _loggerFactory.CreateLogger<BotUpdateHandler>());
             var runner = new BotRunner(ctx, client, handler);
@@ -118,6 +145,39 @@ namespace MirrorBot.Worker.Bot
                 _runners.TryRemove(key, out _);
                 runner.Stop();
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Проверяет, похож ли токен на зашифрованный (Base64 с бинарными данными)
+        /// или это открытый токен формата "123456789:ABC..."
+        /// </summary>
+        private static bool IsEncryptedToken(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+                return false;
+
+            // Открытый токен Telegram всегда имеет формат: цифры:буквы/цифры
+            // Пример: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh
+            if (token.Contains(':') && char.IsDigit(token[0]))
+            {
+                // Это похоже на открытый токен
+                return false;
+            }
+
+            // Пытаемся распарсить как Base64
+            try
+            {
+                Convert.FromBase64String(token);
+
+                // Если успешно распарсили и токен не содержит двоеточия,
+                // то это вероятно зашифрованный токен
+                return !token.Contains(':');
+            }
+            catch
+            {
+                // Если не парсится как Base64, то это открытый токен
+                return false;
             }
         }
 

@@ -15,8 +15,8 @@ namespace MirrorBot.Worker.Data.Repo
         public Task<List<MirrorBotEntity>> GetEnabledAsync(CancellationToken ct)
             => _col.Find(x => x.IsEnabled).ToListAsync(ct);
 
-        public Task<MirrorBotEntity?> GetByTokenAsync(string token, CancellationToken ct)
-            => _col.Find(x => x.Token == token).FirstOrDefaultAsync(ct);
+        public Task<MirrorBotEntity?> GetByEncryptedTokenAsync(string encryptedToken, CancellationToken ct)
+            => _col.Find(x => x.EncryptedToken == encryptedToken).FirstOrDefaultAsync(ct);
 
         public Task<DeleteResult> DeleteByOdjectIdAsync(ObjectId id, CancellationToken ct)
             => _col.DeleteOneAsync(x => x.Id == id, ct);

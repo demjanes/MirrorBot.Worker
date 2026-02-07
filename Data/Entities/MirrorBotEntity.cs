@@ -12,7 +12,11 @@ namespace MirrorBot.Worker.Data.Entities
     {      
         public long OwnerTelegramUserId { get; set; }
 
-        public string Token { get; set; } = default!; // по твоему требованию plain text
+        /// <summary>
+        /// Шифрованный токен бота (никогда не открытый текст)
+        /// </summary>
+        [BsonElement("encryptedToken")]
+        public string EncryptedToken { get; set; } = default!;
 
         public string? BotUsername { get; set; }
 

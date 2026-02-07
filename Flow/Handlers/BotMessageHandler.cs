@@ -5,6 +5,7 @@ using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
+using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System;
@@ -28,17 +29,20 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly MirrorBotsRepository _mirrorBots;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IAdminNotifier _notifier;
+        private readonly ITokenEncryptionService _tokenEncryption;
 
         public BotMessageHandler(
             UsersRepository users,
             MirrorBotsRepository mirrorBots,
             IHttpClientFactory httpClientFactory,
-            IAdminNotifier notifier)
+            IAdminNotifier notifier,
+            ITokenEncryptionService tokenEncryptionService)
         {
             _users = users;
             _mirrorBots = mirrorBots;
             _httpClientFactory = httpClientFactory;
             _notifier = notifier;
+            _tokenEncryption = tokenEncryptionService;
         }
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
@@ -182,8 +186,21 @@ namespace MirrorBot.Worker.Flow.Handlers
             Message msg,
             string token,
             CancellationToken ct)
-        {
-            var existing = await _mirrorBots.GetByTokenAsync(token, ct);
+        {           
+            string encryptedToken;
+            try
+            {
+                encryptedToken = _tokenEncryption.Encrypt(token);
+            }
+            catch (Exception ex)
+            {
+                await client.SendMessage(
+                    chatId: msg.Chat.Id,
+                    text: "Ошибка при обработке токена. Попробуй позже.",
+                    cancellationToken: ct);
+                return;
+            }
+            var existing = await _mirrorBots.GetByEncryptedTokenAsync(encryptedToken, ct);
             if (existing is not null)
             {
                 await client.SendMessage(
@@ -225,11 +242,12 @@ namespace MirrorBot.Worker.Flow.Handlers
                     cancellationToken: ct);
                 return;
             }
-
+           
             var mirror = new MirrorBotEntity
             {
                 OwnerTelegramUserId = msg.From!.Id,
-                Token = token,
+                //Token = token,
+                EncryptedToken = encryptedToken,
                 BotUsername = me.Username,
                 IsEnabled = true
             };
