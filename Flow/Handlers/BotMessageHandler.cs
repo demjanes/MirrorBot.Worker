@@ -1,4 +1,6 @@
-﻿using MirrorBot.Worker.Bot;
+﻿using Microsoft.Extensions.Options;
+using MirrorBot.Worker.Bot;
+using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Data.Entities;
 using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Repo;
@@ -30,19 +32,22 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IAdminNotifier _notifier;
         private readonly ITokenEncryptionService _tokenEncryption;
+        private readonly IOptions<LimitsConfiguration> _limitsOptions;
 
         public BotMessageHandler(
             UsersRepository users,
             MirrorBotsRepository mirrorBots,
             IHttpClientFactory httpClientFactory,
             IAdminNotifier notifier,
-            ITokenEncryptionService tokenEncryptionService)
+            ITokenEncryptionService tokenEncryptionService,
+            IOptions<LimitsConfiguration> limitsOptions)
         {
             _users = users;
             _mirrorBots = mirrorBots;
             _httpClientFactory = httpClientFactory;
             _notifier = notifier;
             _tokenEncryption = tokenEncryptionService;
+            _limitsOptions = limitsOptions;
         }
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
@@ -186,11 +191,46 @@ namespace MirrorBot.Worker.Flow.Handlers
             Message msg,
             string token,
             CancellationToken ct)
-        {           
+        {
+            var ownerId = msg.From!.Id;
+            var normalizedToken = token.Trim();
+
+            //проверяем есть ли такой токен (его хеш) уже в базе
+            string tokenHash;
+            try
+            {
+                tokenHash = _tokenEncryption.ComputeTokenHash(normalizedToken);
+            }
+            catch
+            {
+                await client.SendMessage(msg.Chat.Id, "Ошибка при обработке токена. Попробуй позже.", cancellationToken: ct);
+                return;
+            }
+            var existingByHash = await _mirrorBots.GetByTokenHashAsync(tokenHash, ct);
+            if (existingByHash is not null)
+            {
+                await client.SendMessage(msg.Chat.Id, BotUi.Text.TokenAlreadyAdded, cancellationToken: ct);
+                return;
+            }
+
+            //проверяем доступное число ботов
+            var max = _limitsOptions.Value.MaxBotsPerUser;
+            var current = await _mirrorBots.CountByOwnerTgIdAsync(ownerId, ct);
+            if (current >= max)
+            {
+                await client.SendMessage(
+                    chatId: msg.Chat.Id,
+                    text: $"Достигнут лимит: максимум {max} ботов на пользователя. Удалите один из ботов и попробуйте снова.",
+                    cancellationToken: ct);
+
+                return;
+            }
+
+
             string encryptedToken;
             try
             {
-                encryptedToken = _tokenEncryption.Encrypt(token);
+                encryptedToken = _tokenEncryption.Encrypt(normalizedToken);
             }
             catch (Exception ex)
             {
@@ -199,16 +239,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                     text: "Ошибка при обработке токена. Попробуй позже.",
                     cancellationToken: ct);
                 return;
-            }
-            var existing = await _mirrorBots.GetByEncryptedTokenAsync(encryptedToken, ct);
-            if (existing is not null)
-            {
-                await client.SendMessage(
-                    chatId: msg.Chat.Id,
-                    text: BotUi.Text.TokenAlreadyAdded,
-                    cancellationToken: ct);
-                return;
-            }
+            }                                  
 
             Telegram.Bot.Types.User me;
             try
@@ -242,12 +273,13 @@ namespace MirrorBot.Worker.Flow.Handlers
                     cancellationToken: ct);
                 return;
             }
-           
+                       
             var mirror = new MirrorBotEntity
             {
-                OwnerTelegramUserId = msg.From!.Id,
+                OwnerTelegramUserId =ownerId,
                 //Token = token,
                 EncryptedToken = encryptedToken,
+                TokenHash = tokenHash,
                 BotUsername = me.Username,
                 IsEnabled = true
             };

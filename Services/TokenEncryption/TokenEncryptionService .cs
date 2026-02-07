@@ -101,6 +101,21 @@ namespace MirrorBot.Worker.Services.TokenEncryption
                 throw new InvalidOperationException("Failed to decrypt token. The encryption key may be incorrect or the token may be corrupted.", ex);
             }
         }
+
+        public string ComputeTokenHash(string plainToken)
+        {
+            if (string.IsNullOrWhiteSpace(plainToken))
+                throw new ArgumentException("Token cannot be null or empty", nameof(plainToken));
+
+            var normalized = plainToken.Trim();
+
+            // Можно использовать тот же ключ, но лучше завести отдельный ключ для HMAC в конфиге
+            var keyBytes = Encoding.UTF8.GetBytes(_encryptionKey);
+
+            using var hmac = new HMACSHA256(keyBytes);
+            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(normalized));
+            return Convert.ToBase64String(hash);
+        }
     }
 }
 

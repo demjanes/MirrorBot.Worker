@@ -18,6 +18,9 @@ namespace MirrorBot.Worker.Data.Repo
         public Task<MirrorBotEntity?> GetByEncryptedTokenAsync(string encryptedToken, CancellationToken ct)
             => _col.Find(x => x.EncryptedToken == encryptedToken).FirstOrDefaultAsync(ct);
 
+        public Task<MirrorBotEntity?> GetByTokenHashAsync(string tokenHash, CancellationToken ct)
+            => _col.Find(x => x.TokenHash == tokenHash).FirstOrDefaultAsync(ct);
+
         public Task<DeleteResult> DeleteByOdjectIdAsync(ObjectId id, CancellationToken ct)
             => _col.DeleteOneAsync(x => x.Id == id, ct);
 
@@ -26,6 +29,9 @@ namespace MirrorBot.Worker.Data.Repo
 
         public Task<List<MirrorBotEntity>> GetByOwnerTgIdAsync(long ownerTgId, CancellationToken ct)
             => _col.Find(x => x.OwnerTelegramUserId == ownerTgId).ToListAsync(ct);
+
+        public Task<long> CountByOwnerTgIdAsync(long ownerTgId, CancellationToken ct)
+            => _col.CountDocumentsAsync(x => x.OwnerTelegramUserId == ownerTgId, cancellationToken: ct);
 
         public async Task<MirrorBotEntity> InsertAsync(MirrorBotEntity entity, CancellationToken ct)
         {
@@ -50,7 +56,7 @@ namespace MirrorBot.Worker.Data.Repo
                 Builders<MirrorBotEntity>.Update.Set(x => x.LastSeenAtUtc, nowUtc),
                 Builders<MirrorBotEntity>.Update.Set(x => x.LastError, null)
             );
-                        
+
             var options = new FindOneAndUpdateOptions<MirrorBotEntity>
             {
                 ReturnDocument = ReturnDocument.After

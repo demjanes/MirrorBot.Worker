@@ -14,6 +14,7 @@ IHost host = Host.CreateDefaultBuilder(args)
     {
         //configs
         services.Configure<BotConfiguration>(context.Configuration.GetSection("BotConfiguration"));
+        services.Configure<LimitsConfiguration>(context.Configuration.GetSection("Limits"));
         services.Configure<MongoConfiguration>(context.Configuration.GetSection("Mongo"));
         services.Configure<AdminNotificationsConfiguration>(context.Configuration.GetSection("AdminNotifications"));
 

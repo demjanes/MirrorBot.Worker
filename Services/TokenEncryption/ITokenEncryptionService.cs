@@ -17,5 +17,7 @@ namespace MirrorBot.Worker.Services.TokenEncryption
         /// Расшифровывает токен из БД
         /// </summary>
         string Decrypt(string encryptedToken);
+
+        string ComputeTokenHash(string plainToken);
     }
 }
