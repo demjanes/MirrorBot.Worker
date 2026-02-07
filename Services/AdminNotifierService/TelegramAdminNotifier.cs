@@ -62,7 +62,6 @@ namespace MirrorBot.Worker.Services.AdminNotifierService
             if (!o.Enabled) return;
 
             var items = new List<(AdminChannel Channel, string Text)>(capacity: Math.Max(1, o.BatchSize));
-
             while (items.Count < o.BatchSize && _queue.Reader.TryRead(out var item))
                 items.Add(item);
 
@@ -84,13 +83,29 @@ namespace MirrorBot.Worker.Services.AdminNotifierService
                 {
                     if (o.CombineIntoSingleMessage)
                     {
+                        // Объединяем тексты
                         var combined = string.Join("\n\n", texts);
-                        await _adminBot.SendMessage(chatId, combined, cancellationToken: ct); // v22
+
+                        // Разбиваем на части если превышает лимит
+                        var messageParts = MessageSplitter.Split(combined);
+
+                        // Отправляем все части
+                        foreach (var part in messageParts)
+                        {
+                            await _adminBot.SendMessage(chatId, part, cancellationToken: ct);
+                        }
                     }
                     else
                     {
+                        // Отправляем каждое сообщение отдельно, разбивая при необходимости
                         foreach (var t in texts)
-                            await _adminBot.SendMessage(chatId, t, cancellationToken: ct); // v22
+                        {
+                            var messageParts = MessageSplitter.Split(t);
+                            foreach (var part in messageParts)
+                            {
+                                await _adminBot.SendMessage(chatId, part, cancellationToken: ct);
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)

@@ -6,6 +6,7 @@ using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Repo;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
+using MirrorBot.Worker.Services;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Bson;
@@ -122,7 +123,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                     return;
             }
         }
-
+                
         private static async Task SendAsync(TaskEntity entity, CancellationToken ct)
         {
             if (entity is null) return;
@@ -130,11 +131,28 @@ namespace MirrorBot.Worker.Flow.Handlers
             if (entity.answerText is null) return;
             if (entity.tGchatId is null) return;
 
-            await entity.tGclient.SendMessage(
-                chatId: entity.tGchatId,
-                text: entity.answerText,
-                replyMarkup: entity.answerKbrd,
-                cancellationToken: ct);
+            // Разбиваем текст на части если он больше 4096 символов
+            var messageParts = MessageSplitter.Split(entity.answerText);
+
+            // Отправляем первую часть с клавиатурой
+            if (messageParts.Count > 0)
+            {
+                await entity.tGclient.SendMessage(
+                    chatId: entity.tGchatId,
+                    text: messageParts[0],
+                    replyMarkup: entity.answerKbrd,  // Клавиатура только на первом сообщении
+                    cancellationToken: ct);
+            }
+
+            // Отправляем остальные части без клавиатуры
+            for (int i = 1; i < messageParts.Count; i++)
+            {
+                await entity.tGclient.SendMessage(
+                    chatId: entity.tGchatId,
+                    text: messageParts[i],
+                    replyMarkup: null,  // Без клавиатуры на последующих сообщениях
+                    cancellationToken: ct);
+            }
         }
 
         private async Task UpsertSeenAsync(TaskEntity entity, CancellationToken ct)
