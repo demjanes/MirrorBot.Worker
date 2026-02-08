@@ -1,5 +1,5 @@
-﻿using MirrorBot.Worker.Data.Entities;
-using MirrorBot.Worker.Data.Enums;
+﻿using MirrorBot.Worker.Data.Enums;
+using MirrorBot.Worker.Data.Models.Core;
 using MirrorBot.Worker.Flow.Routes;
 using System.Text;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -25,10 +25,10 @@ namespace MirrorBot.Worker.Flow.UI
 
         public static class Text
         {
-            public static string Start(TaskEntity entity)
+            public static string Start(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -44,10 +44,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string HideKbrd(TaskEntity entity)
+            public static string HideKbrd(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -63,10 +63,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string Unknown(TaskEntity entity)
+            public static string Unknown(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -83,10 +83,10 @@ namespace MirrorBot.Worker.Flow.UI
                 return sb.ToString();
             }
 
-            public static string Menu(TaskEntity entity)
+            public static string Menu(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -102,10 +102,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string Help(TaskEntity entity)
+            public static string Help(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -121,10 +121,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string Ref(TaskEntity entity)
+            public static string Ref(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -141,12 +141,12 @@ namespace MirrorBot.Worker.Flow.UI
                 return sb.ToString();
             }
 
-            public static string LangChoose(TaskEntity entity)
+            public static string LangChoose(Data.Models.Core.BotTask entity)
             {
-                var lang = entity.answerLang == UiLang.Ru ? "Русский" : "English";
+                var lang = entity.AnswerLang == UiLang.Ru ? "Русский" : "English";
 
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -166,12 +166,12 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string LangSet(TaskEntity entity)
+            public static string LangSet(Data.Models.Core.BotTask entity)
             {
-                var lang = entity.answerLang == UiLang.Ru ? "Русский" : "English";
+                var lang = entity.AnswerLang == UiLang.Ru ? "Русский" : "English";
 
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -192,10 +192,10 @@ namespace MirrorBot.Worker.Flow.UI
                 return sb.ToString();
             }
 
-            public static string BotsMy(TaskEntity entity)
+            public static string BotsMy(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -211,10 +211,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string BotAdd(TaskEntity entity)
+            public static string BotAdd(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -232,13 +232,13 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string BotAddResult(TaskEntity entity)
+            public static string BotAddResult(Data.Models.Core.BotTask entity)
             {
-                var bot = entity.mirrorBotEntity;
+                var bot = entity.BotMirror;
                 if (bot is null) return "Данных нет";
 
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -254,13 +254,13 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string BotEdit(TaskEntity entity)
+            public static string BotEdit(Data.Models.Core.BotTask entity)
             {
-                var bot = entity.mirrorBotEntity;
+                var bot = entity.BotMirror;
                 if (bot is null) return "Данных нет";
 
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -278,10 +278,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }        
-            public static string BotEditNotFound(TaskEntity entity)
+            public static string BotEditNotFound(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -297,10 +297,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string BotEditNoAccess(TaskEntity entity)
+            public static string BotEditNoAccess(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -316,10 +316,10 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string BotDeleteConfirm(TaskEntity entity)
+            public static string BotDeleteConfirm(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -335,13 +335,13 @@ namespace MirrorBot.Worker.Flow.UI
                 }
                 return sb.ToString();
             }
-            public static string BotDeleteYesResult(TaskEntity entity)
+            public static string BotDeleteYesResult(Data.Models.Core.BotTask entity)
             {
-                var bot = entity.mirrorBotEntity;
+                var bot = entity.BotMirror;
                 if (bot is null) return "Данных нет";
 
                 var sb = new StringBuilder();
-                switch (entity.answerLang)
+                switch (entity.AnswerLang)
                 {
                     case (UiLang.En):
                         {
@@ -370,7 +370,7 @@ namespace MirrorBot.Worker.Flow.UI
 
         public static class Keyboards
         {
-            public static ReplyKeyboardMarkup StartR(TaskEntity entity)
+            public static ReplyKeyboardMarkup StartR(Data.Models.Core.BotTask entity)
             {
                 var kb = new[]
                     {
@@ -387,7 +387,7 @@ namespace MirrorBot.Worker.Flow.UI
                 };
             }
 
-            public static InlineKeyboardMarkup Menu(TaskEntity entity)
+            public static InlineKeyboardMarkup Menu(Data.Models.Core.BotTask entity)
             {
                 var kb = new[]
                 {
@@ -406,7 +406,7 @@ namespace MirrorBot.Worker.Flow.UI
 
                 return new InlineKeyboardMarkup(kb);
             }
-            public static InlineKeyboardMarkup Help(TaskEntity entity)
+            public static InlineKeyboardMarkup Help(Data.Models.Core.BotTask entity)
             {
                 var kb = new[]
                 {
@@ -424,7 +424,7 @@ namespace MirrorBot.Worker.Flow.UI
 
                 return new InlineKeyboardMarkup(kb);
             }
-            public static InlineKeyboardMarkup Ref(TaskEntity entity)
+            public static InlineKeyboardMarkup Ref(Data.Models.Core.BotTask entity)
             {
                 var kb = new[]
                 {
@@ -443,14 +443,14 @@ namespace MirrorBot.Worker.Flow.UI
                 return new InlineKeyboardMarkup(kb);
             }
 
-            public static InlineKeyboardMarkup LangChoose(TaskEntity entity)
+            public static InlineKeyboardMarkup LangChoose(Data.Models.Core.BotTask entity)
             {
                 var kb = new[]
                 {
                     new[]
                     {
-                        InlineKeyboardButton.WithCallbackData(entity.answerLang == UiLang.Ru ? "Русский ✅" : "Русский", BotRoutes.Callbacks.Lang.Set(UiLang.Ru)),
-                        InlineKeyboardButton.WithCallbackData(entity.answerLang == UiLang.En ? "English ✅" : "English", BotRoutes.Callbacks.Lang.Set(UiLang.En))
+                        InlineKeyboardButton.WithCallbackData(entity.AnswerLang == UiLang.Ru ? "Русский ✅" : "Русский", BotRoutes.Callbacks.Lang.Set(UiLang.Ru)),
+                        InlineKeyboardButton.WithCallbackData(entity.AnswerLang == UiLang.En ? "English ✅" : "English", BotRoutes.Callbacks.Lang.Set(UiLang.En))
                     },
                     new[]
                     {
@@ -461,7 +461,7 @@ namespace MirrorBot.Worker.Flow.UI
                 return new InlineKeyboardMarkup(kb);
             }
 
-            public static InlineKeyboardMarkup BotAddResult(TaskEntity entity)
+            public static InlineKeyboardMarkup BotAddResult(Data.Models.Core.BotTask entity)
             {
                 var kb = new[]
                 {
@@ -475,7 +475,7 @@ namespace MirrorBot.Worker.Flow.UI
                 return new InlineKeyboardMarkup(kb);
             }
 
-            public static InlineKeyboardMarkup BotsMy(TaskEntity entity, IReadOnlyList<BotListItem>? bots)
+            public static InlineKeyboardMarkup BotsMy(Data.Models.Core.BotTask entity, IReadOnlyList<BotListItem>? bots)
             {
                 var rows = new List<InlineKeyboardButton[]>();
 
@@ -496,40 +496,40 @@ namespace MirrorBot.Worker.Flow.UI
 
                 return new InlineKeyboardMarkup(rows);
             }
-            public static InlineKeyboardMarkup BotEdit(TaskEntity entity)
+            public static InlineKeyboardMarkup BotEdit(Data.Models.Core.BotTask entity)
             {
                 if (entity is null) return null;
-                if (entity.mirrorBotEntity is null) return null;
+                if (entity.BotMirror is null) return null;
 
-                var startStop = entity.mirrorBotEntity.IsEnabled
-                    ? InlineKeyboardButton.WithCallbackData("⏸ Stop", BotRoutes.Callbacks.Bot.Stop(entity.mirrorBotEntity.Id.ToString()))
-                    : InlineKeyboardButton.WithCallbackData("▶️ Start", BotRoutes.Callbacks.Bot.Start(entity.mirrorBotEntity.Id.ToString()));
+                var startStop = entity.BotMirror.IsEnabled
+                    ? InlineKeyboardButton.WithCallbackData("⏸ Stop", BotRoutes.Callbacks.Bot.Stop(entity.BotMirror.Id.ToString()))
+                    : InlineKeyboardButton.WithCallbackData("▶️ Start", BotRoutes.Callbacks.Bot.Start(entity.BotMirror.Id.ToString()));
 
                 return new InlineKeyboardMarkup(new[]
                 {
                     new [] { startStop },
                     new []
                     {
-                        InlineKeyboardButton.WithCallbackData("🗑 Удалить", BotRoutes.Callbacks.Bot.Delete(entity.mirrorBotEntity.Id.ToString())),
+                        InlineKeyboardButton.WithCallbackData("🗑 Удалить", BotRoutes.Callbacks.Bot.Delete(entity.BotMirror.Id.ToString())),
                         InlineKeyboardButton.WithCallbackData("↩️ Мои боты", BotRoutes.Callbacks.Bot.My),
                     }
                 });
             }
-            public static InlineKeyboardMarkup BotDeleteConfirm(TaskEntity entity)
+            public static InlineKeyboardMarkup BotDeleteConfirm(Data.Models.Core.BotTask entity)
             {
                 if (entity is null) return null;
-                if (entity.mirrorBotEntity is null) return null;
+                if (entity.BotMirror is null) return null;
 
                 var kb = new[]
                {
                     new []
                     {
-                        InlineKeyboardButton.WithCallbackData("✅ Да, удалить", BotRoutes.Callbacks.Bot.DeleteYes(entity.mirrorBotEntity.Id.ToString())),
-                        InlineKeyboardButton.WithCallbackData("❌ Нет", BotRoutes.Callbacks.Bot.DeleteNo(entity.mirrorBotEntity.Id.ToString())),
+                        InlineKeyboardButton.WithCallbackData("✅ Да, удалить", BotRoutes.Callbacks.Bot.DeleteYes(entity.BotMirror.Id.ToString())),
+                        InlineKeyboardButton.WithCallbackData("❌ Нет", BotRoutes.Callbacks.Bot.DeleteNo(entity.BotMirror.Id.ToString())),
                     },
                     new []
                     {
-                        InlineKeyboardButton.WithCallbackData("↩️ Назад", BotRoutes.Callbacks.Bot.Edit(entity.mirrorBotEntity.Id.ToString())),
+                        InlineKeyboardButton.WithCallbackData("↩️ Назад", BotRoutes.Callbacks.Bot.Edit(entity.BotMirror.Id.ToString())),
                     }
                };
 

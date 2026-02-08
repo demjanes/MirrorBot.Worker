@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using MirrorBot.Worker.Configs;
-using MirrorBot.Worker.Data.Repo;
+using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow;
 using MirrorBot.Worker.Services.TokenEncryption;
 using System.Collections.Concurrent;
@@ -14,7 +14,7 @@ namespace MirrorBot.Worker.Bot
 
         private readonly ILogger<BotManager> _log;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly MirrorBotsRepository _repo;
+        private readonly IMirrorBotsRepository _repo;
         private readonly BotFlowService _flow;
         private readonly IOptions<BotConfiguration> _mainOpt;
         private readonly IHttpClientFactory _httpClientFactory;
@@ -25,7 +25,7 @@ namespace MirrorBot.Worker.Bot
         public BotManager(
             ILoggerFactory loggerFactory,
             ILogger<BotManager> log,
-            MirrorBotsRepository repo,
+            IMirrorBotsRepository repo,
             BotFlowService flow,
             IOptions<BotConfiguration> mainOpt,
             IHttpClientFactory httpClientFactory,

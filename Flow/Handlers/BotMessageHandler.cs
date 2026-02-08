@@ -1,9 +1,9 @@
 ﻿using Microsoft.Extensions.Options;
 using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
-using MirrorBot.Worker.Data.Entities;
 using MirrorBot.Worker.Data.Events;
-using MirrorBot.Worker.Data.Repo;
+using MirrorBot.Worker.Data.Models.Core;
+using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services;
@@ -11,7 +11,6 @@ using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using System;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -28,16 +27,16 @@ namespace MirrorBot.Worker.Flow.Handlers
         // ВАЖНО: не переключай в true на проде — это утечка секретов в логи/админ-канал.
         private const bool AllowSecretsInAdminLogs = false;
 
-        private readonly UsersRepository _users;
-        private readonly MirrorBotsRepository _mirrorBots;
+        private readonly IUsersRepository _users;
+        private readonly IMirrorBotsRepository _mirrorBots;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IAdminNotifier _notifier;
         private readonly ITokenEncryptionService _tokenEncryption;
         private readonly IOptions<LimitsConfiguration> _limitsOptions;
 
         public BotMessageHandler(
-            UsersRepository users,
-            MirrorBotsRepository mirrorBots,
+            IUsersRepository users,
+            IMirrorBotsRepository mirrorBots,
             IHttpClientFactory httpClientFactory,
             IAdminNotifier notifier,
             ITokenEncryptionService tokenEncryptionService,
@@ -51,7 +50,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             _limitsOptions = limitsOptions;
         }
 
-        public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
+        public async System.Threading.Tasks.Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
         {
             if (ct.IsCancellationRequested) return;
             if (msg?.From is null) return;
@@ -62,13 +61,13 @@ namespace MirrorBot.Worker.Flow.Handlers
             var text = rawText.Trim();
             var chatId = msg.Chat.Id;
 
-            var taskEntity = new TaskEntity
+            var taskEntity = new Data.Models.Core.BotTask
             {
-                botContext = ctx,
-                tGclient = client,
-                tGchatId = chatId,
-                tGmessage = msg,
-                tGuserText = text,
+                BotContext = ctx,
+                TgClient = client,
+                TgChatId = chatId,
+                TgMessage = msg,
+                TgUserText = text,
             };
 
             await UpsertSeenAsync(taskEntity, ct);
@@ -76,37 +75,37 @@ namespace MirrorBot.Worker.Flow.Handlers
             switch (text)
             {
                 case BotRoutes.Commands.Start:
-                    taskEntity.answerText = BotUi.Text.Start(taskEntity);
-                    taskEntity.answerKbrd = BotUi.Keyboards.StartR(taskEntity);
+                    taskEntity.AnswerText = BotUi.Text.Start(taskEntity);
+                    taskEntity.AnswerKeyboard = BotUi.Keyboards.StartR(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.HideKbrdTxt_Ru:
                 case BotRoutes.Commands.HideKbrdTxt_En:
-                    taskEntity.answerText = BotUi.Text.HideKbrd(taskEntity);
-                    taskEntity.answerKbrd = new ReplyKeyboardRemove();
+                    taskEntity.AnswerText = BotUi.Text.HideKbrd(taskEntity);
+                    taskEntity.AnswerKeyboard = new ReplyKeyboardRemove();
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.HelpTxt_Ru:
                 case BotRoutes.Commands.HelpTxt_En:
                 case BotRoutes.Commands.Help:
-                    taskEntity.answerText = BotUi.Text.Help(taskEntity);
-                    taskEntity.answerKbrd = BotUi.Keyboards.Help(taskEntity);
+                    taskEntity.AnswerText = BotUi.Text.Help(taskEntity);
+                    taskEntity.AnswerKeyboard = BotUi.Keyboards.Help(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.MenuTxt_Ru:
                 case BotRoutes.Commands.MenuTxt_En:
                 case BotRoutes.Commands.Menu:
-                    taskEntity.answerText = BotUi.Text.Menu(taskEntity);
-                    taskEntity.answerKbrd = BotUi.Keyboards.Menu(taskEntity);
+                    taskEntity.AnswerText = BotUi.Text.Menu(taskEntity);
+                    taskEntity.AnswerKeyboard = BotUi.Keyboards.Menu(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.Ref:
-                    taskEntity.answerText = BotUi.Text.Ref(taskEntity);
-                    taskEntity.answerKbrd = BotUi.Keyboards.Ref(taskEntity);
+                    taskEntity.AnswerText = BotUi.Text.Ref(taskEntity);
+                    taskEntity.AnswerKeyboard = BotUi.Keyboards.Ref(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
@@ -117,66 +116,66 @@ namespace MirrorBot.Worker.Flow.Handlers
                         return;
                     }
 
-                    taskEntity.answerText = BotUi.Text.Unknown(taskEntity);
-                    taskEntity.answerKbrd = BotUi.Keyboards.StartR(taskEntity);
+                    taskEntity.AnswerText = BotUi.Text.Unknown(taskEntity);
+                    taskEntity.AnswerKeyboard = BotUi.Keyboards.StartR(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
             }
         }
                 
-        private static async Task SendAsync(TaskEntity entity, CancellationToken ct)
+        private static async System.Threading.Tasks.Task SendAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
         {
             if (entity is null) return;
-            if (entity.tGclient is null) return;
-            if (entity.answerText is null) return;
-            if (entity.tGchatId is null) return;
+            if (entity.TgClient is null) return;
+            if (entity.AnswerText is null) return;
+            if (entity.TgChatId is null) return;
 
             // Разбиваем текст на части если он больше 4096 символов
-            var messageParts = MessageSplitter.Split(entity.answerText);
+            var messageParts = MessageSplitter.Split(entity.AnswerText);
 
             // Отправляем первую часть с клавиатурой
             if (messageParts.Count > 0)
             {
-                await entity.tGclient.SendMessage(
-                    chatId: entity.tGchatId,
+                await entity.TgClient.SendMessage(
+                    chatId: entity.TgChatId,
                     text: messageParts[0],
-                    replyMarkup: entity.answerKbrd,  // Клавиатура только на первом сообщении
+                    replyMarkup: entity.AnswerKeyboard,  // Клавиатура только на первом сообщении
                     cancellationToken: ct);
             }
 
             // Отправляем остальные части без клавиатуры
             for (int i = 1; i < messageParts.Count; i++)
             {
-                await entity.tGclient.SendMessage(
-                    chatId: entity.tGchatId,
+                await entity.TgClient.SendMessage(
+                    chatId: entity.TgChatId,
                     text: messageParts[i],
                     replyMarkup: null,  // Без клавиатуры на последующих сообщениях
                     cancellationToken: ct);
             }
         }
 
-        private async Task UpsertSeenAsync(TaskEntity entity, CancellationToken ct)
+        private async System.Threading.Tasks.Task UpsertSeenAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
         {
-            if (entity?.botContext is null) return;
-            if (entity.tGmessage?.From is null) return;
+            if (entity?.BotContext is null) return;
+            if (entity.TgMessage?.From is null) return;
 
-            var from = entity.tGmessage.From;
+            var from = entity.TgMessage.From;
 
             var nowUtc = DateTime.UtcNow;
-            var lastBotKey = entity.botContext.MirrorBotId == ObjectId.Empty
+            var lastBotKey = entity.BotContext.MirrorBotId == ObjectId.Empty
                 ? "__main__"
-                : entity.botContext.MirrorBotId.ToString();
+                : entity.BotContext.MirrorBotId.ToString();
 
             long? refOwner = null;
             ObjectId? refBotId = null;
 
             // реферал только для зеркал + нельзя сам себе
-            if (entity.botContext.OwnerTelegramUserId != 0
-                && entity.botContext.MirrorBotId != ObjectId.Empty
-                && from.Id != entity.botContext.OwnerTelegramUserId)
+            if (entity.BotContext.OwnerTelegramUserId != 0
+                && entity.BotContext.MirrorBotId != ObjectId.Empty
+                && from.Id != entity.BotContext.OwnerTelegramUserId)
             {
-                refOwner = entity.botContext.OwnerTelegramUserId;
-                refBotId = entity.botContext.MirrorBotId;
+                refOwner = entity.BotContext.OwnerTelegramUserId;
+                refBotId = entity.BotContext.MirrorBotId;
             }
 
             var seen = new UserSeenEvent(
@@ -186,25 +185,25 @@ namespace MirrorBot.Worker.Flow.Handlers
                 TgLastName: from.LastName,
                 TgLangCode: from.LanguageCode,
                 LastBotKey: lastBotKey,
-                LastChatId: entity.tGchatId,
+                LastChatId: entity.TgChatId,
                 SeenAtUtc: nowUtc,
                 ReferrerOwnerTgUserId: refOwner,
                 ReferrerMirrorBotId: refBotId
             );
 
             var adminText = AllowSecretsInAdminLogs
-                ? (entity.tGmessage.Text ?? "<empty>")
-                : SanitizeForAdmin(entity.tGmessage.Text);
+                ? (entity.TgMessage.Text ?? "<empty>")
+                : SanitizeForAdmin(entity.TgMessage.Text);
 
             _notifier.TryEnqueue(AdminChannel.Info,
                 $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
                 $"{adminText}\n" +
-                $"@{entity.botContext.BotUsername}");
+                $"@{entity.BotContext.BotUsername}");
 
-            entity.userEntity = await _users.UpsertSeenAsync(seen, ct);
+            entity.User = await _users.UpsertSeenAsync(seen, ct);
         }
 
-        private async Task TryAddMirrorBotByTokenAsync(
+        private async System.Threading.Tasks.Task TryAddMirrorBotByTokenAsync(
             ITelegramBotClient client,
             Message msg,
             string token,
@@ -292,7 +291,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                 return;
             }
                        
-            var mirror = new MirrorBotEntity
+            var mirror = new BotMirror
             {
                 OwnerTelegramUserId =ownerId,
                 //Token = token,
@@ -304,7 +303,7 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             try
             {
-                await _mirrorBots.InsertAsync(mirror, ct);
+                await _mirrorBots.CreateAsync(mirror, ct);
             }
             catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
             {
@@ -315,15 +314,15 @@ namespace MirrorBot.Worker.Flow.Handlers
                 return;
             }
 
-            var taskEntity = new TaskEntity
+            var taskEntity = new Data.Models.Core.BotTask
             {
-                tGclient = client,
-                tGchatId = msg.Chat.Id,
-                mirrorBotEntity = mirror
+                TgClient = client,
+                TgChatId = msg.Chat.Id,
+                BotMirror = mirror
             };
 
-            taskEntity.answerText = BotUi.Text.BotAddResult(taskEntity);
-            taskEntity.answerKbrd = BotUi.Keyboards.BotAddResult(taskEntity);
+            taskEntity.AnswerText = BotUi.Text.BotAddResult(taskEntity);
+            taskEntity.AnswerKeyboard = BotUi.Keyboards.BotAddResult(taskEntity);
             await SendAsync(taskEntity, ct);
         }
 

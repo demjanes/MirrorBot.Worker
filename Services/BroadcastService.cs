@@ -1,5 +1,5 @@
 ﻿using MirrorBot.Worker.Bot;
-using MirrorBot.Worker.Data.Repo;
+using MirrorBot.Worker.Data.Repositories.Interfaces;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 
@@ -7,12 +7,12 @@ namespace MirrorBot.Worker.Services
 {
     public sealed class BroadcastService
     {
-        private readonly UsersRepository _users;
+        private readonly IUsersRepository _users;
         private readonly IBotClientResolver _bots;
         private readonly ILogger<BroadcastService> _log;
 
         public BroadcastService(
-            UsersRepository users,
+            IUsersRepository users,
             IBotClientResolver bots,
             ILogger<BroadcastService> log)
         {
@@ -53,7 +53,7 @@ namespace MirrorBot.Worker.Services
                     await _users.MarkCantSendLastBotAsync(
                         telegramUserId: user.TgUserId,
                         reason: ex.Message,
-                        ct: ct);
+                        cancellationToken: ct);
                 }
                 catch (Exception ex)
                 {

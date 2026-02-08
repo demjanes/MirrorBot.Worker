@@ -18,4 +18,8 @@
     <PackageReference Include="Telegram.Bot" Version="22.1.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Services\AI\Providers\OpenAI\Models\" />
+  </ItemGroup>
+
 </Project>

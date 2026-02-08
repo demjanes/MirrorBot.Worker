@@ -1,8 +1,8 @@
 ﻿using MirrorBot.Worker.Bot;
-using MirrorBot.Worker.Data.Entities;
 using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Events;
-using MirrorBot.Worker.Data.Repo;
+using MirrorBot.Worker.Data.Models.Core;
+using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
@@ -17,13 +17,13 @@ namespace MirrorBot.Worker.Flow.Handlers
 {
     public sealed class BotCallbackHandler
     {
-        private readonly UsersRepository _users;
-        private readonly MirrorBotsRepository _mirrorBots;
+        private readonly IUsersRepository _users;
+        private readonly IMirrorBotsRepository _mirrorBots;
         private readonly IAdminNotifier _notifier;
 
         public BotCallbackHandler(
-            UsersRepository users,
-            MirrorBotsRepository mirrorBots,
+            IUsersRepository users,
+            IMirrorBotsRepository mirrorBots,
             IAdminNotifier notifier)
         {
             _users = users;
@@ -31,7 +31,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             _notifier = notifier;
         }
 
-        public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
+        public async System.Threading.Tasks.Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(cq.Data)) return;
 
@@ -40,12 +40,12 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             var chatId = cq.Message?.Chat.Id ?? cq.From.Id;
 
-            var t = new TaskEntity
+            var t = new Data.Models.Core.BotTask
             {
-                botContext = ctx,
-                tGclient = client,
-                tGchatId = chatId,
-                tGcallbackQuery = cq,
+                BotContext = ctx,
+                TgClient = client,
+                TgChatId = chatId,
+                TgCallbackQuery = cq,
             };
 
             await UpsertSeenAsync(t, ct);
@@ -73,25 +73,25 @@ namespace MirrorBot.Worker.Flow.Handlers
 
         }
 
-        private async Task HandleMenuAsync(TaskEntity t, CbData cb, CancellationToken ct)
+        private async System.Threading.Tasks.Task HandleMenuAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Menu.MenuMainAction, StringComparison.OrdinalIgnoreCase):
-                    t.answerText = BotUi.Text.Menu(t);
-                    t.answerKbrd = BotUi.Keyboards.Menu(t);
+                    t.AnswerText = BotUi.Text.Menu(t);
+                    t.AnswerKeyboard = BotUi.Keyboards.Menu(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
                 case string s when s.Equals(BotRoutes.Callbacks.Menu.HelpAction, StringComparison.OrdinalIgnoreCase):
-                    t.answerText = BotUi.Text.Help(t);
-                    t.answerKbrd = BotUi.Keyboards.Help(t);
+                    t.AnswerText = BotUi.Text.Help(t);
+                    t.AnswerKeyboard = BotUi.Keyboards.Help(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
                 case string s when s.Equals(BotRoutes.Callbacks.Menu.RefAction, StringComparison.OrdinalIgnoreCase):
-                    t.answerText = BotUi.Text.Ref(t);
-                    t.answerKbrd = BotUi.Keyboards.Ref(t);
+                    t.AnswerText = BotUi.Text.Ref(t);
+                    t.AnswerKeyboard = BotUi.Keyboards.Ref(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
@@ -100,13 +100,13 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task HandleLangAsync(TaskEntity t, CbData cb, CancellationToken ct)
+        private async System.Threading.Tasks.Task HandleLangAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Lang.ChooseAction, StringComparison.OrdinalIgnoreCase):
-                    t.answerText = BotUi.Text.LangChoose(t);
-                    t.answerKbrd = BotUi.Keyboards.LangChoose(t);
+                    t.AnswerText = BotUi.Text.LangChoose(t);
+                    t.AnswerKeyboard = BotUi.Keyboards.LangChoose(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
@@ -115,14 +115,14 @@ namespace MirrorBot.Worker.Flow.Handlers
                         var args = cb.Args ?? Array.Empty<string>();
                         var newLang = UiLangExt.ParseOrDefault(args.ElementAtOrDefault(0), UiLang.Ru);
 
-                        t.userEntity = await _users.SetPreferredLangAsync(
-                            t.tGcallbackQuery!.From.Id,
+                        t.User = await _users.SetPreferredLangAsync(
+                            t.TgCallbackQuery!.From.Id,
                             newLang,
                             DateTime.UtcNow,
                             ct);
 
-                        t.answerText = BotUi.Text.LangSet(t);
-                        t.answerKbrd = BotUi.Keyboards.LangChoose(t);
+                        t.AnswerText = BotUi.Text.LangSet(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.LangChoose(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -132,18 +132,18 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task HandleBotsAsync(TaskEntity t, CbData cb, CancellationToken ct)
+        private async System.Threading.Tasks.Task HandleBotsAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Bot.AddAction, StringComparison.OrdinalIgnoreCase):
-                    t.answerText = BotUi.Text.BotAdd(t);
+                    t.AnswerText = BotUi.Text.BotAdd(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
                 case string s when s.Equals(BotRoutes.Callbacks.Bot.MyAction, StringComparison.OrdinalIgnoreCase):
                     {
-                        var ownerId = t.tGcallbackQuery!.From.Id;
+                        var ownerId = t.TgCallbackQuery!.From.Id;
                         var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct);
 
                         var items = bots.Select(b => new BotListItem(
@@ -151,8 +151,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             Title: "@" + (b.BotUsername ?? "unknown"),
                             IsEnabled: b.IsEnabled)).ToList();
 
-                        t.answerText = BotUi.Text.BotsMy(t);
-                        t.answerKbrd = BotUi.Keyboards.BotsMy(t, items);
+                        t.AnswerText = BotUi.Text.BotsMy(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotsMy(t, items);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -161,8 +161,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        t.answerText = BotUi.Text.BotEdit(t);
-                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotUi.Text.BotEdit(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -172,10 +172,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
                         var nowUtc = DateTime.UtcNow;
-                        t.mirrorBotEntity = await _mirrorBots.SetEnabledAsync(t.mirrorBotEntity!.Id, false, nowUtc, ct);
+                        t.BotMirror = await _mirrorBots.SetEnabledAsync(t.BotMirror!.Id, false, nowUtc, ct);
 
-                        t.answerText = BotUi.Text.BotEdit(t);
-                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotUi.Text.BotEdit(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -185,10 +185,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
                         var nowUtc = DateTime.UtcNow;
-                        t.mirrorBotEntity = await _mirrorBots.SetEnabledAsync(t.mirrorBotEntity!.Id, true, nowUtc, ct);
+                        t.BotMirror = await _mirrorBots.SetEnabledAsync(t.BotMirror!.Id, true, nowUtc, ct);
 
-                        t.answerText = BotUi.Text.BotEdit(t);
-                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotUi.Text.BotEdit(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -197,8 +197,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        t.answerText = BotUi.Text.BotDeleteConfirm(t);
-                        t.answerKbrd = BotUi.Keyboards.BotDeleteConfirm(t);
+                        t.AnswerText = BotUi.Text.BotDeleteConfirm(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotDeleteConfirm(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -207,10 +207,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        await _mirrorBots.DeleteByOdjectIdAsync(t.mirrorBotEntity!.Id, ct);
+                        await _mirrorBots.DeleteAsync(t.BotMirror!.Id, ct);
 
-                        t.answerText = BotUi.Text.BotDeleteYesResult(t);
-                        t.answerKbrd = BotUi.Keyboards.BotsMy(t, null);
+                        t.AnswerText = BotUi.Text.BotDeleteYesResult(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotsMy(t, null);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -219,8 +219,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        t.answerText = BotUi.Text.BotEdit(t);
-                        t.answerKbrd = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotUi.Text.BotEdit(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -230,26 +230,26 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task<bool> TryLoadOwnedBotAsync(TaskEntity t, CbData cb, int index, CancellationToken ct)
+        private async Task<bool> TryLoadOwnedBotAsync(BotTask t, CbData cb, int index, CancellationToken ct)
         {
             var args = cb.Args ?? Array.Empty<string>();
 
             if (!TryGetObjectId(args, index, out var botId))
                 return false;
 
-            t.mirrorBotEntity = await _mirrorBots.GetByOdjectIdAsync(botId, ct);
-            if (t.mirrorBotEntity is null)
+            t.BotMirror = await _mirrorBots.GetByIdAsync(botId, ct);
+            if (t.BotMirror is null)
             {
-                t.answerText = BotUi.Text.BotEditNotFound(t);
-                t.answerKbrd = BotUi.Keyboards.BotsMy(t, null);
+                t.AnswerText = BotUi.Text.BotEditNotFound(t);
+                t.AnswerKeyboard = BotUi.Keyboards.BotsMy(t, null);
                 await SendOrEditAsync(t, ct);
                 return false;
             }
 
             // security check: только владелец
-            if (t.mirrorBotEntity.OwnerTelegramUserId != t.tGcallbackQuery!.From.Id)
+            if (t.BotMirror.OwnerTelegramUserId != t.TgCallbackQuery!.From.Id)
             {
-                t.answerText = BotUi.Text.BotEditNoAccess(t);
+                t.AnswerText = BotUi.Text.BotEditNoAccess(t);
                 await SendOrEditAsync(t, ct);
                 return false;
             }
@@ -257,32 +257,32 @@ namespace MirrorBot.Worker.Flow.Handlers
             return true;
         }
 
-        private static async Task SendOrEditAsync(TaskEntity entity, CancellationToken ct)
+        private static async System.Threading.Tasks.Task SendOrEditAsync(BotTask entity, CancellationToken ct)
         {
-            if (entity?.tGclient is null) return;
-            if (entity.tGcallbackQuery is null) return;
-            if (entity.answerText is null) return;
+            if (entity?.TgClient is null) return;
+            if (entity.TgCallbackQuery is null) return;
+            if (entity.AnswerText is null) return;
 
-            var chatId = entity.tGchatId ?? entity.tGcallbackQuery.From.Id;
+            var chatId = entity.TgChatId ?? entity.TgCallbackQuery.From.Id;
 
             // Если callback без Message (редко), отправляем новое сообщение
-            if (entity.tGcallbackQuery.Message is not { } m)
+            if (entity.TgCallbackQuery.Message is not { } m)
             {
-                await entity.tGclient.SendMessage(
+                await entity.TgClient.SendMessage(
                     chatId: chatId,
-                    text: entity.answerText,
-                    replyMarkup: entity.answerKbrd,
+                    text: entity.AnswerText,
+                    replyMarkup: entity.AnswerKeyboard,
                     cancellationToken: ct);
                 return;
             }
 
             try
             {
-                await entity.tGclient.EditMessageText(
+                await entity.TgClient.EditMessageText(
                     chatId: m.Chat.Id,
                     messageId: m.MessageId,
-                    text: entity.answerText,
-                    replyMarkup: entity.answerKbrd as InlineKeyboardMarkup,
+                    text: entity.AnswerText,
+                    replyMarkup: entity.AnswerKeyboard as InlineKeyboardMarkup,
                     cancellationToken: ct);
             }
             catch (ApiRequestException ex) when (
@@ -293,10 +293,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                 if (ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
                     return;
 
-                await entity.tGclient.SendMessage(
+                await entity.TgClient.SendMessage(
                     chatId: m.Chat.Id,
-                    text: entity.answerText,
-                    replyMarkup: entity.answerKbrd,
+                    text: entity.AnswerText,
+                    replyMarkup: entity.AnswerKeyboard,
                     cancellationToken: ct);
             }
         }
@@ -309,26 +309,26 @@ namespace MirrorBot.Worker.Flow.Handlers
             return ObjectId.TryParse(args[index], out id);
         }
 
-        private async Task UpsertSeenAsync(TaskEntity entity, CancellationToken ct)
+        private async System.Threading.Tasks.Task UpsertSeenAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
         {
-            if (entity?.botContext is null) return;
-            if (entity.tGcallbackQuery?.From is not { } from) return;
+            if (entity?.BotContext is null) return;
+            if (entity.TgCallbackQuery?.From is not { } from) return;
 
             var nowUtc = DateTime.UtcNow;
 
-            var lastBotKey = entity.botContext.MirrorBotId == ObjectId.Empty
+            var lastBotKey = entity.BotContext.MirrorBotId == ObjectId.Empty
                 ? "__main__"
-                : entity.botContext.MirrorBotId.ToString();
+                : entity.BotContext.MirrorBotId.ToString();
 
             long? refOwner = null;
             ObjectId? refBotId = null;
 
-            if (entity.botContext.OwnerTelegramUserId != 0 &&
-                entity.botContext.MirrorBotId != ObjectId.Empty &&
-                from.Id != entity.botContext.OwnerTelegramUserId)
+            if (entity.BotContext.OwnerTelegramUserId != 0 &&
+                entity.BotContext.MirrorBotId != ObjectId.Empty &&
+                from.Id != entity.BotContext.OwnerTelegramUserId)
             {
-                refOwner = entity.botContext.OwnerTelegramUserId;
-                refBotId = entity.botContext.MirrorBotId;
+                refOwner = entity.BotContext.OwnerTelegramUserId;
+                refBotId = entity.BotContext.MirrorBotId;
             }
 
             var seen = new UserSeenEvent(
@@ -338,7 +338,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                 TgLastName: from.LastName,
                 TgLangCode: from.LanguageCode,
                 LastBotKey: lastBotKey,
-                LastChatId: entity.tGchatId,
+                LastChatId: entity.TgChatId,
                 SeenAtUtc: nowUtc,
                 ReferrerOwnerTgUserId: refOwner,
                 ReferrerMirrorBotId: refBotId
@@ -347,10 +347,10 @@ namespace MirrorBot.Worker.Flow.Handlers
             _notifier.TryEnqueue(
                 AdminChannel.Info,
                 $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
-                $"/{entity.tGcallbackQuery.Data}\n" +
-                $"@{entity.botContext.BotUsername}");
+                $"/{entity.TgCallbackQuery.Data}\n" +
+                $"@{entity.BotContext.BotUsername}");
 
-            entity.userEntity = await _users.UpsertSeenAsync(seen, ct);
+            entity.User = await _users.UpsertSeenAsync(seen, ct);
         }
     }
 }
