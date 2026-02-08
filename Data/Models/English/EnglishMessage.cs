@@ -34,7 +34,7 @@ namespace MirrorBot.Worker.Data.Models.English
         /// Исправления грамматики
         /// </summary>
         [BsonElement("corrections")]
-        public List<GrammarCorrection> Corrections { get; set; } = new();
+        public List<MessageCorrection> Corrections { get; set; } = new();
 
         /// <summary>
         /// Timestamp сообщения

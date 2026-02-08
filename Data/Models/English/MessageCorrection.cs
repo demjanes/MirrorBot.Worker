@@ -10,7 +10,7 @@ namespace MirrorBot.Worker.Data.Models.English
     /// <summary>
     /// Грамматическое исправление
     /// </summary>
-    public sealed class GrammarCorrection
+    public sealed class MessageCorrection
     {
         /// <summary>
         /// Оригинальный текст с ошибкой

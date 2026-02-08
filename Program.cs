@@ -10,6 +10,7 @@ using MirrorBot.Worker.Services.AI;
 using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.AI.Providers.OpenAI;
 using MirrorBot.Worker.Services.AI.Providers.YandexGPT;
+using MirrorBot.Worker.Services.English;
 using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Driver;
 using Telegram.Bot;
@@ -48,7 +49,11 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IAIProvider>(sp => sp.GetRequiredService<AIProviderFactory>().GetProvider());
         services.AddSingleton<ISpeechProvider>(sp => sp.GetRequiredService<SpeechProviderFactory>().GetProvider());
 
-
+        // English Tutor Services
+        services.AddSingleton<GrammarAnalyzer>();
+        services.AddSingleton<VocabularyExtractor>();
+        services.AddSingleton<ConversationManager>();
+        services.AddSingleton<IEnglishTutorService, EnglishTutorService>();
 
         //шифрование токенов пользователей
         services.AddSingleton<ITokenEncryptionService>(sp =>
