@@ -7,6 +7,7 @@ using MirrorBot.Worker.Flow;
 using MirrorBot.Worker.Flow.Handlers;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.AI;
+using MirrorBot.Worker.Services.AI.Implementations;
 using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.AI.Providers.OpenAI;
 using MirrorBot.Worker.Services.AI.Providers.YandexGPT;
@@ -55,6 +56,9 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<ConversationManager>();
         services.AddSingleton<IEnglishTutorService, EnglishTutorService>();
 
+        // Cache service
+        services.AddSingleton<ICacheService, CacheService>();
+
         //шифрование токенов пользователей
         services.AddSingleton<ITokenEncryptionService>(sp =>
         {
@@ -96,6 +100,7 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IUserProgressRepository, UserProgressRepository>();
         services.AddSingleton<ISubscriptionRepository, SubscriptionRepository>();
         services.AddSingleton<IUserSettingsRepository, UserSettingsRepository>();
+        services.AddSingleton<ICacheRepository, CacheRepository>();
 
         services.AddSingleton<BotMessageHandler>();
         services.AddSingleton<BotCallbackHandler>();

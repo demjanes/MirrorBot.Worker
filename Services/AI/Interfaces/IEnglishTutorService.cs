@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MirrorBot.Worker.Services.AI.Implementations;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -46,43 +47,43 @@ namespace MirrorBot.Worker.Services.AI.Interfaces
             CancellationToken cancellationToken = default);
     }
 
-    /// <summary>
-    /// Ответ от тьютора
-    /// </summary>
-    public class EnglishTutorResponse
-    {
-        /// <summary>
-        /// Текстовый ответ
-        /// </summary>
-        public string TextResponse { get; set; } = string.Empty;
+    ///// <summary>
+    ///// Ответ от тьютора
+    ///// </summary>
+    //public class EnglishTutorResponse
+    //{
+    //    /// <summary>
+    //    /// Текстовый ответ
+    //    /// </summary>
+    //    public string TextResponse { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Голосовой ответ (если есть)
-        /// </summary>
-        public byte[]? VoiceResponse { get; set; }
+    //    /// <summary>
+    //    /// Голосовой ответ (если есть)
+    //    /// </summary>
+    //    public byte[]? VoiceResponse { get; set; }
 
-        /// <summary>
-        /// Исправления грамматики
-        /// </summary>
-        public List<GrammarCorrection> Corrections { get; set; } = new();
+    //    /// <summary>
+    //    /// Исправления грамматики
+    //    /// </summary>
+    //    public List<GrammarCorrection> Corrections { get; set; } = new();
 
-        /// <summary>
-        /// Новые слова для словаря
-        /// </summary>
-        public List<string> NewVocabulary { get; set; } = new();
+    //    /// <summary>
+    //    /// Новые слова для словаря
+    //    /// </summary>
+    //    public List<string> NewVocabulary { get; set; } = new();
 
-        /// <summary>
-        /// Анализ произношения (для голосовых)
-        /// </summary>
-        public PronunciationAnalysis? PronunciationFeedback { get; set; }
+    //    /// <summary>
+    //    /// Анализ произношения (для голосовых)
+    //    /// </summary>
+    //    public PronunciationAnalysis? PronunciationFeedback { get; set; }
 
-        /// <summary>
-        /// Успешность операции
-        /// </summary>
-        public bool Success { get; set; }
+    //    /// <summary>
+    //    /// Успешность операции
+    //    /// </summary>
+    //    public bool Success { get; set; }
 
-        public string? ErrorMessage { get; set; }
-    }
+    //    public string? ErrorMessage { get; set; }
+    //}
 
     /// <summary>
     /// Исправление грамматики

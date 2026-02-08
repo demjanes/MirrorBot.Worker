@@ -1,12 +1,10 @@
 ﻿using MirrorBot.Worker.Data.Models.English;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
+using MirrorBot.Worker.Services.AI.Implementations;
 using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.English.Prompts;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Services.English
 {
@@ -25,6 +23,7 @@ namespace MirrorBot.Worker.Services.English
         private readonly ISubscriptionRepository _subscriptionRepo;
         private readonly IUserSettingsRepository _settingsRepo;
         private readonly ILogger<EnglishTutorService> _logger;
+        private readonly ICacheService _cacheService;
 
         public EnglishTutorService(
             IAIProvider aiProvider,
@@ -36,6 +35,7 @@ namespace MirrorBot.Worker.Services.English
             IUserProgressRepository progressRepo,
             ISubscriptionRepository subscriptionRepo,
             IUserSettingsRepository settingsRepo,
+            ICacheService cacheService,
             ILogger<EnglishTutorService> logger)
         {
             _aiProvider = aiProvider;
@@ -47,14 +47,15 @@ namespace MirrorBot.Worker.Services.English
             _progressRepo = progressRepo;
             _subscriptionRepo = subscriptionRepo;
             _settingsRepo = settingsRepo;
+            _cacheService = cacheService;
             _logger = logger;
         }
 
         public async Task<EnglishTutorResponse> ProcessTextMessageAsync(
-     long userId,
-     string botId,
-     string userMessage,
-     CancellationToken cancellationToken = default)
+            long userId,
+            string botId,
+            string userMessage,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -70,64 +71,126 @@ namespace MirrorBot.Worker.Services.English
 
                 // Получить диалог
                 var conversation = await _conversationManager.GetOrCreateConversationAsync(
-                    userId, botId, cancellationToken: cancellationToken);
+                    userId,
+                    botId,
+                    cancellationToken: cancellationToken);
 
                 // Добавить сообщение пользователя
                 await _conversationManager.AddUserMessageAsync(
-                    conversation, userMessage, cancellationToken: cancellationToken);
+                    conversation,
+                    userMessage,
+                    cancellationToken: cancellationToken);
 
                 // Получить контекст
                 var contextMessages = await _conversationManager.GetContextMessagesAsync(
-                    conversation, cancellationToken);
+                    conversation,
+                    cancellationToken);
 
-                // Анализ грамматики (возвращает List<GrammarCorrection> из Interfaces)
+                // Анализ грамматики (всегда выполняется, не кэшируется)
                 var corrections = await _grammarAnalyzer.AnalyzeAsync(
-                    userMessage, cancellationToken);
+                    userMessage,
+                    cancellationToken);
 
-                // Генерация ответа от AI
+                // Системный промпт по текущему режиму диалога
                 var systemPrompt = EnglishTutorPrompts.GetPromptByMode(conversation.Mode);
-                var aiRequest = new AIRequest
-                {
-                    SystemPrompt = systemPrompt,
-                    Messages = contextMessages,
-                    Temperature = 0.7,
-                    MaxTokens = 1000
-                };
 
-                var aiResponse = await _aiProvider.GenerateResponseAsync(
-                    aiRequest, cancellationToken);
+                // Хеш контекста для кэша
+                var contextHash = ComputeContextHash(systemPrompt, contextMessages);
 
-                if (!aiResponse.Success)
+                // Попытаться найти ответ в кэше
+                var cached = await _cacheService.GetAsync(
+                    userMessage,
+                    conversation.Mode,
+                    contextHash,
+                    _aiProvider.ProviderName,
+                    cancellationToken);
+
+                string answerText;
+                int tokensUsed;
+                string? cachedVoiceFileId = null;
+                string? cacheKey = null;
+
+                if (cached != null)
                 {
-                    return new EnglishTutorResponse
+                    // КЭШ-ХИТ: используем сохранённый текст ответа
+                    answerText = cached.ResponseText;
+                    tokensUsed = cached.TokensUsed;
+                    cachedVoiceFileId = cached.VoiceFileId;
+                    cacheKey = cached.CacheKey;
+                }
+                else
+                {
+                    // КЭШ-МИСС: генерируем ответ у провайдера
+                    var aiRequest = new AIRequest
                     {
-                        Success = false,
-                        ErrorMessage = aiResponse.ErrorMessage
+                        SystemPrompt = systemPrompt,
+                        Messages = contextMessages,
+                        Temperature = 0.7,
+                        MaxTokens = 1000
                     };
+
+                    var aiResponse = await _aiProvider.GenerateResponseAsync(
+                        aiRequest,
+                        cancellationToken);
+
+                    if (!aiResponse.Success)
+                    {
+                        return new EnglishTutorResponse
+                        {
+                            Success = false,
+                            ErrorMessage = aiResponse.ErrorMessage
+                        };
+                    }
+
+                    answerText = aiResponse.Content;
+                    tokensUsed = aiResponse.TokensUsed;
+
+                    // Генерируем ключ для будущего обновления voiceFileId
+                    using var sha = SHA256.Create();
+                    var raw = $"{conversation.Mode}||{_aiProvider.ProviderName}||{contextHash}||{userMessage}";
+                    var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(raw));
+                    cacheKey = Convert.ToHexString(bytes);
+
+                    // Сохранить ответ в кэш (пока без voiceFileId)
+                    await _cacheService.SaveAsync(
+                        userMessage,
+                        conversation.Mode,
+                        contextHash,
+                        _aiProvider.ProviderName,
+                        answerText,
+                        voiceFileId: null,
+                        tokensUsed,
+                        cancellationToken);
                 }
 
-                // Извлечь новые слова
+                // Извлечь новые слова (на основе итогового текста ответа)
                 var newWords = await _vocabularyExtractor.ExtractAsync(
-                    userMessage, aiResponse.Content, cancellationToken);
+                    userMessage,
+                    answerText,
+                    cancellationToken);
 
-                // Сохранить ответ ассистента
+                // Сохранить ответ ассистента в диалоге
                 await _conversationManager.AddAssistantMessageAsync(
                     conversation,
-                    aiResponse.Content,
+                    answerText,
                     corrections,
-                    aiResponse.TokensUsed,
+                    tokensUsed,
                     cancellationToken: cancellationToken);
 
                 // Обновить прогресс
                 await _progressRepo.IncrementMessagesAsync(userId, false, cancellationToken);
+
                 if (corrections.Count > 0)
                 {
                     await _progressRepo.AddCorrectionsAsync(
-                        userId, corrections.Count, cancellationToken);
+                        userId,
+                        corrections.Count,
+                        cancellationToken);
                 }
 
                 // Добавить слова в словарь (если включено в настройках)
                 var settings = await _settingsRepo.GetByUserIdAsync(userId, cancellationToken);
+
                 if (settings?.AutoAddToVocabulary == true)
                 {
                     await AddWordsToVocabularyAsync(userId, newWords, cancellationToken);
@@ -136,32 +199,48 @@ namespace MirrorBot.Worker.Services.English
                 // Использовать сообщение из лимита
                 await _subscriptionRepo.UseMessageAsync(userId, cancellationToken);
 
-                // Получить настройки для голоса
+                // Настройки для голосового ответа
                 byte[]? voiceResponse = null;
+                string? newVoiceFileId = null;
+
                 if (settings?.AutoVoiceResponse == true)
                 {
-                    var ttsRequest = new TextToSpeechRequest
+                    // Проверяем, есть ли уже кэшированный voiceFileId
+                    if (!string.IsNullOrEmpty(cachedVoiceFileId))
                     {
-                        Text = aiResponse.Content,
-                        Voice = settings.PreferredVoice,
-                        Speed = settings.SpeechSpeed
-                    };
-
-                    var ttsResponse = await _speechProvider.GenerateSpeechAsync(
-                        ttsRequest, cancellationToken);
-
-                    if (ttsResponse.Success)
+                        // Используем кэшированный FileId (не генерируем заново)
+                        newVoiceFileId = cachedVoiceFileId;
+                        // voiceResponse остается null, так как мы отправим по FileId
+                    }
+                    else
                     {
-                        voiceResponse = ttsResponse.AudioData;
+                        // Генерируем новый голосовой ответ
+                        var ttsRequest = new TextToSpeechRequest
+                        {
+                            Text = answerText,
+                            Voice = settings.PreferredVoice,
+                            Speed = settings.SpeechSpeed
+                        };
+
+                        var ttsResponse = await _speechProvider.GenerateSpeechAsync(
+                            ttsRequest,
+                            cancellationToken);
+
+                        if (ttsResponse.Success)
+                        {
+                            voiceResponse = ttsResponse.AudioData;
+                            // newVoiceFileId будет установлен после отправки в Telegram
+                        }
                     }
                 }
 
-                // ✅ ИСПРАВЛЕНО
                 return new EnglishTutorResponse
                 {
-                    TextResponse = aiResponse.Content,
+                    TextResponse = answerText,
                     VoiceResponse = voiceResponse,
-                    Corrections = corrections, // ✅ Уже правильного типа
+                    CachedVoiceFileId = cachedVoiceFileId,
+                    CacheKey = cacheKey,
+                    Corrections = corrections,
                     NewVocabulary = newWords.Select(w => w.Word).ToList(),
                     Success = true
                 };
@@ -169,6 +248,7 @@ namespace MirrorBot.Worker.Services.English
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing text message");
+
                 return new EnglishTutorResponse
                 {
                     Success = false,
@@ -176,12 +256,11 @@ namespace MirrorBot.Worker.Services.English
                 };
             }
         }
-
         public async Task<EnglishTutorResponse> ProcessVoiceMessageAsync(
-            long userId,
-            string botId,
-            byte[] audioData,
-            CancellationToken cancellationToken = default)
+      long userId,
+      string botId,
+      byte[] audioData,
+      CancellationToken cancellationToken = default)
         {
             try
             {
@@ -195,7 +274,7 @@ namespace MirrorBot.Worker.Services.English
                     };
                 }
 
-                // Speech-to-Text
+                // Speech-to-Text с анализом произношения
                 var sttRequest = new SpeechToTextRequest
                 {
                     AudioData = audioData,
@@ -204,7 +283,8 @@ namespace MirrorBot.Worker.Services.English
                 };
 
                 var sttResponse = await _speechProvider.TranscribeAudioAsync(
-                    sttRequest, cancellationToken);
+                    sttRequest,
+                    cancellationToken);
 
                 if (!sttResponse.Success || string.IsNullOrWhiteSpace(sttResponse.Text))
                 {
@@ -215,18 +295,94 @@ namespace MirrorBot.Worker.Services.English
                     };
                 }
 
-                // Обработать как текст
-                var textResponse = await ProcessTextMessageAsync(
-                    userId, botId, sttResponse.Text, cancellationToken);
+                // Получить диалог для контекста
+                var conversation = await _conversationManager.GetOrCreateConversationAsync(
+                    userId,
+                    botId,
+                    cancellationToken: cancellationToken);
 
-                // Добавить анализ произношения
-                if (sttResponse.Pronunciation != null)
+                var contextMessages = await _conversationManager.GetContextMessagesAsync(
+                    conversation,
+                    cancellationToken);
+
+                var systemPrompt = EnglishTutorPrompts.GetPromptByMode(conversation.Mode);
+                var contextHash = ComputeContextHash(systemPrompt, contextMessages);
+
+                // Проверить кэш
+                var cached = await _cacheService.GetAsync(
+                    sttResponse.Text,
+                    conversation.Mode,
+                    contextHash,
+                    _aiProvider.ProviderName,
+                    cancellationToken);
+
+                EnglishTutorResponse textResponse;
+
+                if (cached != null)
                 {
-                    textResponse.PronunciationFeedback = sttResponse.Pronunciation;
+                    // КЭШ-ХИТ: восстанавливаем ответ из кэша
+                    textResponse = new EnglishTutorResponse
+                    {
+                        TextResponse = cached.ResponseText,
+                        CachedVoiceFileId = cached.VoiceFileId,
+                        CacheKey = cached.CacheKey,
+                        // Восстанавливаем анализ произношения из кэша
+                        PronunciationFeedback = CacheService.ConvertFromCachedPronunciation(
+                            cached.PronunciationAnalysis)
+                            ?? sttResponse.Pronunciation, // fallback на текущий анализ
+                        Success = true
+                    };
 
-                    // Обновить прогресс произношения
-                    await _progressRepo.UpdatePronunciationScoreAsync(
-                        userId, sttResponse.Pronunciation.Score, cancellationToken);
+                    // Пересчитываем corrections и vocabulary (быстрые операции)
+                    var corrections = await _grammarAnalyzer.AnalyzeAsync(
+                        sttResponse.Text,
+                        cancellationToken);
+
+                    var newWords = await _vocabularyExtractor.ExtractAsync(
+                        sttResponse.Text,
+                        cached.ResponseText,
+                        cancellationToken);
+
+                    textResponse.Corrections = corrections;
+                    textResponse.NewVocabulary = newWords.Select(w => w.Word).ToList();
+                }
+                else
+                {
+                    // КЭШ-МИСС: обработать как обычный текст
+                    textResponse = await ProcessTextMessageAsync(
+                        userId,
+                        botId,
+                        sttResponse.Text,
+                        cancellationToken);
+
+                    if (!textResponse.Success)
+                    {
+                        return textResponse;
+                    }
+
+                    // Добавить анализ произношения
+                    if (sttResponse.Pronunciation != null)
+                    {
+                        textResponse.PronunciationFeedback = sttResponse.Pronunciation;
+
+                        // Сохранить в кэш с произношением
+                        await _cacheService.SaveWithPronunciationAsync(
+                            sttResponse.Text,
+                            conversation.Mode,
+                            contextHash,
+                            _aiProvider.ProviderName,
+                            textResponse.TextResponse,
+                            textResponse.CachedVoiceFileId,
+                            0, // tokensUsed уже учтен в ProcessTextMessageAsync
+                            sttResponse.Pronunciation,
+                            cancellationToken);
+
+                        // Обновить прогресс произношения
+                        await _progressRepo.UpdatePronunciationScoreAsync(
+                            userId,
+                            sttResponse.Pronunciation.Score,
+                            cancellationToken);
+                    }
                 }
 
                 // Обновить счетчик голосовых сообщений
@@ -237,6 +393,7 @@ namespace MirrorBot.Worker.Services.English
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing voice message");
+
                 return new EnglishTutorResponse
                 {
                     Success = false,
@@ -307,6 +464,27 @@ namespace MirrorBot.Worker.Services.English
             // Обновить размер словаря в прогрессе
             var vocabularySize = await _vocabularyRepo.GetVocabularySizeAsync(userId, cancellationToken);
             await _progressRepo.UpdateVocabularySizeAsync(userId, vocabularySize, cancellationToken);
+        }
+
+        private static string ComputeContextHash(string systemPrompt, List<ChatMessage> contextMessages)
+        {
+            var sb = new StringBuilder();
+
+            // Включаем системный промпт
+            sb.Append(systemPrompt);
+
+            // Включаем роли и тексты сообщений (без таймстампов — они не должны влиять на кэш)
+            foreach (var msg in contextMessages)
+            {
+                sb.Append("||")
+                  .Append(msg.Role)
+                  .Append(":")
+                  .Append(msg.Content);
+            }
+
+            using var sha = SHA256.Create();
+            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+            return Convert.ToHexString(bytes);
         }
     }
 }
