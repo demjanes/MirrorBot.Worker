@@ -8,6 +8,7 @@ using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services;
 using MirrorBot.Worker.Services.AdminNotifierService;
+using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -22,9 +23,8 @@ namespace MirrorBot.Worker.Flow.Handlers
     public sealed class BotMessageHandler
     {
         private static readonly Regex TokenRegex =
-            new(@"^[0-9]{8,10}:[a-zA-Z0-9_-]{35}$", RegexOptions.Compiled);
+         new(@"^[0-9]{8,10}:[a-zA-Z0-9_-]{35}$", RegexOptions.Compiled);
 
-        // ВАЖНО: не переключай в true на проде — это утечка секретов в логи/админ-канал.
         private const bool AllowSecretsInAdminLogs = false;
 
         private readonly IUsersRepository _users;
@@ -33,6 +33,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IAdminNotifier _notifier;
         private readonly ITokenEncryptionService _tokenEncryption;
         private readonly IOptions<LimitsConfiguration> _limitsOptions;
+        private readonly IReferralService _referralService; // ← НОВОЕ
 
         public BotMessageHandler(
             IUsersRepository users,
@@ -40,7 +41,8 @@ namespace MirrorBot.Worker.Flow.Handlers
             IHttpClientFactory httpClientFactory,
             IAdminNotifier notifier,
             ITokenEncryptionService tokenEncryptionService,
-            IOptions<LimitsConfiguration> limitsOptions)
+            IOptions<LimitsConfiguration> limitsOptions,
+            IReferralService referralService) // ← НОВОЕ
         {
             _users = users;
             _mirrorBots = mirrorBots;
@@ -48,6 +50,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             _notifier = notifier;
             _tokenEncryption = tokenEncryptionService;
             _limitsOptions = limitsOptions;
+            _referralService = referralService; // ← НОВОЕ
         }
 
         public async System.Threading.Tasks.Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
@@ -70,9 +73,22 @@ namespace MirrorBot.Worker.Flow.Handlers
                 TgUserText = text,
             };
 
-            await UpsertSeenAsync(taskEntity, ct);
+            // ============ НОВОЕ: Парсим /start параметр ============
+            string? startParameter = null;
+            if (text.StartsWith(BotRoutes.Commands.Start, StringComparison.OrdinalIgnoreCase))
+            {
+                // Извлекаем параметр после "/start "
+                var parts = text.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 1)
+                {
+                    startParameter = parts[1];
+                }
+            }
+            // ========================================================
 
-            switch (text)
+            await UpsertSeenAsync(taskEntity, startParameter, ct); // ← ИЗМЕНЕНО: передаем startParameter
+
+            switch (text.Split(' ')[0]) // ← ИЗМЕНЕНО: берем только команду без параметра
             {
                 case BotRoutes.Commands.Start:
                     taskEntity.AnswerText = BotUi.Text.Start(taskEntity);
@@ -122,7 +138,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                     return;
             }
         }
-                
+
         private static async System.Threading.Tasks.Task SendAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
         {
             if (entity is null) return;
@@ -130,31 +146,32 @@ namespace MirrorBot.Worker.Flow.Handlers
             if (entity.AnswerText is null) return;
             if (entity.TgChatId is null) return;
 
-            // Разбиваем текст на части если он больше 4096 символов
             var messageParts = MessageSplitter.Split(entity.AnswerText);
 
-            // Отправляем первую часть с клавиатурой
             if (messageParts.Count > 0)
             {
                 await entity.TgClient.SendMessage(
                     chatId: entity.TgChatId,
                     text: messageParts[0],
-                    replyMarkup: entity.AnswerKeyboard,  // Клавиатура только на первом сообщении
+                    replyMarkup: entity.AnswerKeyboard,
                     cancellationToken: ct);
             }
 
-            // Отправляем остальные части без клавиатуры
             for (int i = 1; i < messageParts.Count; i++)
             {
                 await entity.TgClient.SendMessage(
                     chatId: entity.TgChatId,
                     text: messageParts[i],
-                    replyMarkup: null,  // Без клавиатуры на последующих сообщениях
+                    replyMarkup: null,
                     cancellationToken: ct);
             }
         }
 
-        private async System.Threading.Tasks.Task UpsertSeenAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
+        // ============ ИЗМЕНЕНО: добавлен параметр startParameter ============
+        private async System.Threading.Tasks.Task UpsertSeenAsync(
+            Data.Models.Core.BotTask entity,
+            string? startParameter, // ← НОВОЕ
+            CancellationToken ct)
         {
             if (entity?.BotContext is null) return;
             if (entity.TgMessage?.From is null) return;
@@ -169,14 +186,27 @@ namespace MirrorBot.Worker.Flow.Handlers
             long? refOwner = null;
             ObjectId? refBotId = null;
 
-            // реферал только для зеркал + нельзя сам себе
-            if (entity.BotContext.OwnerTelegramUserId != 0
-                && entity.BotContext.MirrorBotId != ObjectId.Empty
-                && from.Id != entity.BotContext.OwnerTelegramUserId)
+            // ============ НОВАЯ ЛОГИКА: сначала пробуем извлечь из start-параметра ============
+            var referrerFromParam = ReferralCodeParser.TryParseOwnerTelegramId(startParameter);
+
+            if (referrerFromParam.HasValue && referrerFromParam.Value != from.Id)
             {
+                // Есть валидный start-параметр и это не сам пользователь
+                refOwner = referrerFromParam.Value;
+                // Пытаемся найти зеркало этого владельца
+                refBotId = entity.BotContext.MirrorBotId != ObjectId.Empty
+                    ? entity.BotContext.MirrorBotId
+                    : null;
+            }
+            else if (entity.BotContext.OwnerTelegramUserId != 0
+                     && entity.BotContext.MirrorBotId != ObjectId.Empty
+                     && from.Id != entity.BotContext.OwnerTelegramUserId)
+            {
+                // Нет start-параметра, но пользователь пришел через зеркало
                 refOwner = entity.BotContext.OwnerTelegramUserId;
                 refBotId = entity.BotContext.MirrorBotId;
             }
+            // ==================================================================================
 
             var seen = new UserSeenEvent(
                 TgUserId: from.Id,
@@ -196,11 +226,25 @@ namespace MirrorBot.Worker.Flow.Handlers
                 : SanitizeForAdmin(entity.TgMessage.Text);
 
             _notifier.TryEnqueue(AdminChannel.Info,
-                $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
-                $"{adminText}\n" +
+                $"#id{seen.TgUserId} @{seen.TgUsername}\\n" +
+                $"{adminText}\\n" +
                 $"@{entity.BotContext.BotUsername}");
 
-            entity.User = await _users.UpsertSeenAsync(seen, ct);
+            var user = await _users.UpsertSeenAsync(seen, ct);
+            entity.User = user;
+
+            // ============ ИСПРАВЛЕНО: используем существующий метод RegisterReferralAsync ============
+            if (refOwner.HasValue)
+            {
+                // RegisterReferralAsync сам проверит, новый ли это реферал
+                // и отправит уведомления через IReferralNotificationService
+                await _referralService.RegisterReferralAsync(
+                    userId: from.Id,
+                    referrerOwnerTgUserId: refOwner,
+                    referrerMirrorBotId: refBotId,
+                    cancellationToken: ct);
+            }
+            // ======================================================================================
         }
 
         private async System.Threading.Tasks.Task TryAddMirrorBotByTokenAsync(
@@ -212,7 +256,6 @@ namespace MirrorBot.Worker.Flow.Handlers
             var ownerId = msg.From!.Id;
             var normalizedToken = token.Trim();
 
-            //проверяем есть ли такой токен (его хеш) уже в базе
             string tokenHash;
             try
             {
@@ -230,7 +273,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                 return;
             }
 
-            //проверяем доступное число ботов
             var max = _limitsOptions.Value.MaxBotsPerUser;
             var current = await _mirrorBots.CountByOwnerTgIdAsync(ownerId, ct);
             if (current >= max)
@@ -242,7 +284,6 @@ namespace MirrorBot.Worker.Flow.Handlers
 
                 return;
             }
-
 
             string encryptedToken;
             try
@@ -256,7 +297,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                     text: "Ошибка при обработке токена. Попробуй позже.",
                     cancellationToken: ct);
                 return;
-            }                                  
+            }
 
             Telegram.Bot.Types.User me;
             try
@@ -290,11 +331,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                     cancellationToken: ct);
                 return;
             }
-                       
+
             var mirror = new BotMirror
             {
-                OwnerTelegramUserId =ownerId,
-                //Token = token,
+                OwnerTelegramUserId = ownerId,
                 EncryptedToken = encryptedToken,
                 TokenHash = tokenHash,
                 BotUsername = me.Username,
