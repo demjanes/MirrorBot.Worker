@@ -12,6 +12,7 @@ using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.AI.Providers.OpenAI;
 using MirrorBot.Worker.Services.AI.Providers.YandexGPT;
 using MirrorBot.Worker.Services.English;
+using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Driver;
 using Telegram.Bot;
@@ -24,7 +25,7 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.Configure<LimitsConfiguration>(context.Configuration.GetSection("Limits"));
         services.Configure<MongoConfiguration>(context.Configuration.GetSection("Mongo"));
         services.Configure<AdminNotificationsConfiguration>(context.Configuration.GetSection("AdminNotifications"));
-
+        services.Configure<ReferralConfiguration>(context.Configuration.GetSection(ReferralConfiguration.SectionName));
 
         // Конфигурация
         services.Configure<AIConfiguration>(context.Configuration.GetSection(AIConfiguration.SectionName));
@@ -33,19 +34,17 @@ IHost host = Host.CreateDefaultBuilder(args)
         // HttpClient для AI провайдеров
         services.AddHttpClient<YandexGPTProvider>();
         services.AddHttpClient<YandexSpeechKitProvider>();
-        services.AddHttpClient<OpenAIProvider>();
-        services.AddHttpClient<WhisperProvider>();
-
+        //services.AddHttpClient<OpenAIProvider>();
+        //services.AddHttpClient<WhisperProvider>();
         // Регистрация провайдеров
         services.AddSingleton<YandexGPTProvider>();
         services.AddSingleton<YandexSpeechKitProvider>();
-        services.AddSingleton<OpenAIProvider>();
-        services.AddSingleton<WhisperProvider>();
+        //services.AddSingleton<OpenAIProvider>();
+        //services.AddSingleton<WhisperProvider>();
 
         // Фабрики
         services.AddSingleton<AIProviderFactory>();
         services.AddSingleton<SpeechProviderFactory>();
-
         // Удобные сервисы для получения активных провайдеров
         services.AddSingleton<IAIProvider>(sp => sp.GetRequiredService<AIProviderFactory>().GetProvider());
         services.AddSingleton<ISpeechProvider>(sp => sp.GetRequiredService<SpeechProviderFactory>().GetProvider());
@@ -90,17 +89,22 @@ IHost host = Host.CreateDefaultBuilder(args)
         //registrations
         services.AddHttpClient("telegram").RemoveAllLoggers();
 
-        //services.AddSingleton<MirrorBotsRepository>();
-        //services.AddSingleton<UsersRepository>();
         services.AddSingleton<IMirrorBotsRepository, MirrorBotsRepository>();
         services.AddSingleton<IUsersRepository, UsersRepository>();
-
         services.AddSingleton<IConversationRepository, ConversationRepository>();
         services.AddSingleton<IVocabularyRepository, VocabularyRepository>();
         services.AddSingleton<IUserProgressRepository, UserProgressRepository>();
         services.AddSingleton<ISubscriptionRepository, SubscriptionRepository>();
         services.AddSingleton<IUserSettingsRepository, UserSettingsRepository>();
         services.AddSingleton<ICacheRepository, CacheRepository>();
+        services.AddSingleton<IReferralStatsRepository, ReferralStatsRepository>();
+        services.AddSingleton<IReferralTransactionRepository, ReferralTransactionRepository>();
+        services.AddSingleton<IMirrorBotOwnerSettingsRepository, MirrorBotOwnerSettingsRepository>();
+
+        // Referral services
+        services.AddSingleton<IReferralNotificationService, ReferralNotificationService>();
+        services.AddSingleton<IReferralService, ReferralService>();
+
 
         services.AddSingleton<BotMessageHandler>();
         services.AddSingleton<BotCallbackHandler>();
@@ -109,6 +113,9 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<BotManager>();
         services.AddSingleton<IBotClientResolver>(sp => sp.GetRequiredService<BotManager>());
         services.AddHostedService(sp => sp.GetRequiredService<BotManager>());
+
+
+
 
 
         //////логгирование в тг
