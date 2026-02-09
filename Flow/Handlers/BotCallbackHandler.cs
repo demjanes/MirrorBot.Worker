@@ -25,7 +25,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             IUsersRepository users,
             IMirrorBotsRepository mirrorBots,
             IAdminNotifier notifier)
-        {
+        {          
             _users = users;
             _mirrorBots = mirrorBots;
             _notifier = notifier;

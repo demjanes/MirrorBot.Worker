@@ -36,21 +36,21 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IReferralService _referralService; // ← НОВОЕ
 
         public BotMessageHandler(
-            IUsersRepository users,
-            IMirrorBotsRepository mirrorBots,
-            IHttpClientFactory httpClientFactory,
-            IAdminNotifier notifier,
-            ITokenEncryptionService tokenEncryptionService,
-            IOptions<LimitsConfiguration> limitsOptions,
-            IReferralService referralService) // ← НОВОЕ
-        {
+     IUsersRepository users,
+     IMirrorBotsRepository mirrorBots,
+     IHttpClientFactory httpClientFactory,
+     IAdminNotifier notifier,
+     ITokenEncryptionService tokenEncryptionService,
+     IOptions<LimitsConfiguration> limitsOptions,
+     IReferralService referralService)
+        {          
             _users = users;
             _mirrorBots = mirrorBots;
             _httpClientFactory = httpClientFactory;
             _notifier = notifier;
             _tokenEncryption = tokenEncryptionService;
             _limitsOptions = limitsOptions;
-            _referralService = referralService; // ← НОВОЕ
+            _referralService = referralService;
         }
 
         public async System.Threading.Tasks.Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)

@@ -15,20 +15,20 @@ namespace MirrorBot.Worker.Services.Referral
         private readonly IMirrorBotOwnerSettingsRepository _ownerSettingsRepo;
         private readonly IMirrorBotsRepository _mirrorBotsRepo;
         private readonly IUsersRepository _usersRepo;
-        private readonly IBotClientResolver _botClientResolver;
+        private readonly IServiceProvider _serviceProvider; // ← ИЗМЕНЕНО
         private readonly ILogger<ReferralNotificationService> _logger;
 
         public ReferralNotificationService(
             IMirrorBotOwnerSettingsRepository ownerSettingsRepo,
             IMirrorBotsRepository mirrorBotsRepo,
             IUsersRepository usersRepo,
-            IBotClientResolver botClientResolver,
+            IServiceProvider serviceProvider, // ← ИЗМЕНЕНО
             ILogger<ReferralNotificationService> logger)
-        {
+        {           
             _ownerSettingsRepo = ownerSettingsRepo;
             _mirrorBotsRepo = mirrorBotsRepo;
             _usersRepo = usersRepo;
-            _botClientResolver = botClientResolver;
+            _serviceProvider = serviceProvider; // ← ИЗМЕНЕНО
             _logger = logger;
         }
 
@@ -55,10 +55,10 @@ namespace MirrorBot.Worker.Services.Referral
                 var referralName = referralUser?.TgUsername ?? $"User {referralTgUserId}";
 
                 // Формируем текст уведомления
-                var message = $"🎉 <b>Новый реферал!</b>\n\n" +
-                             $"К вашему боту присоединился новый пользователь:\n" +
-                             $"👤 {EscapeHtml(referralName)}\n" +
-                             $"🆔 ID: de>{referralTgUserId}</code>";
+                var message = $"🎉 <b>Новый реферал!</b>\\n\\n" +
+                             $"К вашему боту присоединился новый пользователь:\\n" +
+                             $"👤 {EscapeHtml(referralName)}\\n" +
+                             $"🆔 ID: <code>{referralTgUserId}</code>";
 
                 if (mirrorBotId.HasValue && mirrorBotId != ObjectId.Empty)
                 {
@@ -68,7 +68,7 @@ namespace MirrorBot.Worker.Services.Referral
 
                     if (mirrorBot != null)
                     {
-                        message += $"\n🤖 Через бота: @{EscapeHtml(mirrorBot.BotUsername ?? "unknown")}";
+                        message += $"\\n🤖 Через бота: @{EscapeHtml(mirrorBot.BotUsername ?? "unknown")}";
                     }
                 }
 
@@ -121,10 +121,10 @@ namespace MirrorBot.Worker.Services.Referral
                 var formattedAmount = FormatAmount(amount, currency);
 
                 // Формируем текст уведомления
-                var message = $"💰 <b>Пополнение баланса!</b>\n\n" +
-                             $"Вам начислен реферальный бонус: <b>{formattedAmount}</b>\n" +
-                             $"От реферала: {EscapeHtml(referralName)}\n" +
-                             $"🆔 ID: de>{referralTgUserId}</code>";
+                var message = $"💰 <b>Пополнение баланса!</b>\\n\\n" +
+                             $"Вам начислен реферальный бонус: <b>{formattedAmount}</b>\\n" +
+                             $"От реферала: {EscapeHtml(referralName)}\\n" +
+                             $"🆔 ID: <code>{referralTgUserId}</code>";
 
                 // Получаем владельца и отправляем ему уведомление в его последний бот
                 var owner = await _usersRepo.GetByTelegramIdAsync(
@@ -165,9 +165,9 @@ namespace MirrorBot.Worker.Services.Referral
 
                 var formattedAmount = FormatAmount(amount, currency);
 
-                var message = $"✅ <b>Запрос на вывод принят!</b>\n\n" +
-                             $"Сумма: <b>{formattedAmount}</b>\n" +
-                             $"Статус: В обработке\n\n" +
+                var message = $"✅ <b>Запрос на вывод принят!</b>\\n\\n" +
+                             $"Сумма: <b>{formattedAmount}</b>\\n" +
+                             $"Статус: В обработке\\n\\n" +
                              $"Средства будут зачислены в течение 1-3 рабочих дней.";
 
                 // Получаем владельца и отправляем ему уведомление в его последний бот
@@ -217,8 +217,11 @@ namespace MirrorBot.Worker.Services.Referral
                     return;
                 }
 
+                // ← ИЗМЕНЕНО: получаем IBotClientResolver через IServiceProvider
+                var botClientResolver = _serviceProvider.GetRequiredService<IBotClientResolver>();
+
                 // Пытаемся получить bot client по ключу последнего использованного бота
-                if (!_botClientResolver.TryGetClient(owner.LastBotKey, out var botClient))
+                if (!botClientResolver.TryGetClient(owner.LastBotKey, out var botClient))
                 {
                     _logger.LogWarning(
                         "Could not resolve bot client for owner {OwnerId} with botKey {BotKey}",

@@ -11,8 +11,8 @@ namespace MirrorBot.Worker.Flow
         private readonly BotCallbackHandler _callbacks;
 
         public BotFlowService(BotMessageHandler messages, BotCallbackHandler callbacks)
-        {
-            _messages = messages;
+        {           
+            _messages = messages;                 
             _callbacks = callbacks;
         }
 
