@@ -44,30 +44,16 @@ namespace MirrorBot.Worker.Services.Referral
         }
 
         public async Task RegisterReferralAsync(
-            long userId,
-            long? referrerOwnerTgUserId,
-            ObjectId? referrerMirrorBotId,
-            CancellationToken cancellationToken = default)
+     long userId,
+     long? referrerOwnerTgUserId,
+     ObjectId? referrerMirrorBotId,
+     CancellationToken cancellationToken = default)
         {
             try
             {
-                // Проверяем, что есть реферер
                 if (!referrerOwnerTgUserId.HasValue)
                     return;
 
-                // Проверяем, что пользователь ещё не привязан к рефереру
-                var user = await _usersRepo.GetByTelegramIdAsync(userId, cancellationToken);
-
-                if (user?.ReferrerOwnerTgUserId != null)
-                {
-                    _logger.LogDebug(
-                        "User {UserId} already has a referrer {ReferrerId}",
-                        userId,
-                        user.ReferrerOwnerTgUserId);
-                    return;
-                }
-
-                // Проверяем, что пользователь не пытается стать рефералом самого себя
                 if (referrerOwnerTgUserId == userId)
                 {
                     _logger.LogWarning(
@@ -76,20 +62,39 @@ namespace MirrorBot.Worker.Services.Referral
                     return;
                 }
 
-                // Привязываем реферера к пользователю
-                await _usersRepo.SetReferralIfEmptyAsync(
-                    userId,
-                    referrerOwnerTgUserId.Value,
-                    referrerMirrorBotId ?? ObjectId.Empty,
-                    cancellationToken);
+                var user = await _usersRepo.GetByTelegramIdAsync(userId, cancellationToken);
 
-                // Обновляем статистику владельца
+                if (user == null)
+                {
+                    _logger.LogWarning(
+                        "RegisterReferralAsync: пользователь {UserId} не найден",
+                        userId);
+                    return;
+                }
+
+                if (user.ReferrerOwnerTgUserId != null && user.ReferrerOwnerTgUserId != referrerOwnerTgUserId.Value)
+                {
+                    _logger.LogDebug(
+                        "User {UserId} already has a different referrer {ExistingReferrerId}",
+                        userId,
+                        user.ReferrerOwnerTgUserId);
+                    return;
+                }
+
+                if (user.ReferrerOwnerTgUserId == null)
+                {
+                    await _usersRepo.SetReferralIfEmptyAsync(
+                        userId,
+                        referrerOwnerTgUserId.Value,
+                        referrerMirrorBotId ?? ObjectId.Empty,
+                        cancellationToken);
+                }
+
                 await _statsRepo.GetOrCreateAsync(referrerOwnerTgUserId.Value, cancellationToken);
                 await _statsRepo.IncrementTotalReferralsAsync(
                     referrerOwnerTgUserId.Value,
                     cancellationToken);
 
-                // Уведомляем владельца о новом реферале
                 await _notificationService.NotifyNewReferralAsync(
                     referrerOwnerTgUserId.Value,
                     userId,

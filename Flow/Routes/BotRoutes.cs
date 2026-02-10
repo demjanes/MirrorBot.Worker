@@ -15,8 +15,6 @@ namespace MirrorBot.Worker.Flow.Routes
             public const string HideKbrdTxt_Ru = "❌ Скрыть клавиатуру";
             public const string HideKbrdTxt_En = "❌ Hide keyboard";
 
-           
-
             public const string Menu = "/menu";
             public const string MenuTxt_Ru = "📋 Меню";
             public const string MenuTxt_En = "📋 Menu";
@@ -25,10 +23,9 @@ namespace MirrorBot.Worker.Flow.Routes
             public const string HelpTxt_Ru = "ℹ️ Помощь";
             public const string HelpTxt_En = "ℹ️ Help";
 
-
             public const string Ref = "/ref";
-
-
+            public const string RefTxt_Ru = "💰 Реферальная программа";
+            public const string RefTxt_En = "💰 Referral Program";
 
             public const string AddBot = "/addbot";
         }
@@ -41,7 +38,7 @@ namespace MirrorBot.Worker.Flow.Routes
 
                 public static readonly string MenuMainAction = "menu";
                 public static readonly string MenuMain = CbCodec.Pack(_section, MenuMainAction);
-                
+
                 public static readonly string HelpAction = "help";
                 public static readonly string Help = CbCodec.Pack(_section, HelpAction);
 
@@ -81,16 +78,52 @@ namespace MirrorBot.Worker.Flow.Routes
 
                 public static readonly string DeleteAction = "delete";
                 public static string Delete(string objectId) => CbCodec.Pack(_section, DeleteAction, objectId);
-                
+
                 public static readonly string DeleteYesAction = "delete_yes";
                 public static string DeleteYes(string objectId) => CbCodec.Pack(_section, DeleteYesAction, objectId);
-                
+
                 public static readonly string DeleteNoAction = "delete_no";
                 public static string DeleteNo(string objectId) => CbCodec.Pack(_section, DeleteNoAction, objectId);
+            }
 
+            // ============ НОВОЕ: Секция реферальной программы ============
+            public static class Referral
+            {
+                public const string _section = "referral";
 
+                // Главное меню
+                public static readonly string MainAction = "main";
+                public static readonly string Main = CbCodec.Pack(_section, MainAction);
 
+                // Статистика
+                public static readonly string StatsAction = "stats";
+                public static readonly string Stats = CbCodec.Pack(_section, StatsAction);
 
+                // Реферальные ссылки
+                public static readonly string LinksAction = "links";
+                public static readonly string Links = CbCodec.Pack(_section, LinksAction);
+
+                // История транзакций
+                public static readonly string TransactionsAction = "txns";
+                public static readonly string Transactions = CbCodec.Pack(_section, TransactionsAction);
+
+                // Настройки уведомлений
+                public static readonly string SettingsAction = "settings";
+                public static readonly string Settings = CbCodec.Pack(_section, SettingsAction);
+
+                // Переключатели уведомлений
+                public static readonly string ToggleNewReferralAction = "toggle_new";
+                public static readonly string ToggleNewReferral = CbCodec.Pack(_section, ToggleNewReferralAction);
+
+                public static readonly string ToggleEarningsAction = "toggle_earn";
+                public static readonly string ToggleEarnings = CbCodec.Pack(_section, ToggleEarningsAction);
+
+                public static readonly string TogglePayoutAction = "toggle_payout";
+                public static readonly string TogglePayout = CbCodec.Pack(_section, TogglePayoutAction);
+
+                // Запрос на вывод средств
+                public static readonly string PayoutAction = "payout";
+                public static readonly string Payout = CbCodec.Pack(_section, PayoutAction);
             }
         }
     }

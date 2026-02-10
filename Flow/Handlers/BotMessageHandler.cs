@@ -26,7 +26,7 @@ namespace MirrorBot.Worker.Flow.Handlers
          new(@"^[0-9]{8,10}:[a-zA-Z0-9_-]{35}$", RegexOptions.Compiled);
 
         private const bool AllowSecretsInAdminLogs = false;
-
+        private readonly ILogger<BotMessageHandler> _logger;
         private readonly IUsersRepository _users;
         private readonly IMirrorBotsRepository _mirrorBots;
         private readonly IHttpClientFactory _httpClientFactory;
@@ -36,14 +36,16 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IReferralService _referralService; // ← НОВОЕ
 
         public BotMessageHandler(
-     IUsersRepository users,
-     IMirrorBotsRepository mirrorBots,
-     IHttpClientFactory httpClientFactory,
-     IAdminNotifier notifier,
-     ITokenEncryptionService tokenEncryptionService,
-     IOptions<LimitsConfiguration> limitsOptions,
-     IReferralService referralService)
-        {          
+            ILogger<BotMessageHandler> logger,
+            IUsersRepository users,
+            IMirrorBotsRepository mirrorBots,
+            IHttpClientFactory httpClientFactory,
+            IAdminNotifier notifier,
+            ITokenEncryptionService tokenEncryptionService,
+            IOptions<LimitsConfiguration> limitsOptions,
+            IReferralService referralService)
+        {
+            _logger = logger;
             _users = users;
             _mirrorBots = mirrorBots;
             _httpClientFactory = httpClientFactory;
@@ -73,24 +75,24 @@ namespace MirrorBot.Worker.Flow.Handlers
                 TgUserText = text,
             };
 
-            // ============ НОВОЕ: Парсим /start параметр ============
+            // ============ ИЗМЕНЕНО: Парсим /start параметр ПЕРЕД switch ============
             string? startParameter = null;
             if (text.StartsWith(BotRoutes.Commands.Start, StringComparison.OrdinalIgnoreCase))
             {
-                // Извлекаем параметр после "/start "
                 var parts = text.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length > 1)
                 {
                     startParameter = parts[1];
                 }
             }
-            // ========================================================
+            // ========================================================================
 
-            await UpsertSeenAsync(taskEntity, startParameter, ct); // ← ИЗМЕНЕНО: передаем startParameter
+            await UpsertSeenAsync(taskEntity, startParameter, ct);
 
-            switch (text.Split(' ')[0]) // ← ИЗМЕНЕНО: берем только команду без параметра
+            // ============ ВЕРНУЛ ОБРАТНО проверку полного текста ============
+            switch (text)
             {
-                case BotRoutes.Commands.Start:
+                case var cmd when cmd.StartsWith(BotRoutes.Commands.Start, StringComparison.OrdinalIgnoreCase):
                     taskEntity.AnswerText = BotUi.Text.Start(taskEntity);
                     taskEntity.AnswerKeyboard = BotUi.Keyboards.StartR(taskEntity);
                     await SendAsync(taskEntity, ct);
@@ -120,6 +122,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     return;
 
                 case BotRoutes.Commands.Ref:
+                case BotRoutes.Commands.RefTxt_Ru:
+                case BotRoutes.Commands.RefTxt_En:
                     taskEntity.AnswerText = BotUi.Text.Ref(taskEntity);
                     taskEntity.AnswerKeyboard = BotUi.Keyboards.Ref(taskEntity);
                     await SendAsync(taskEntity, ct);
@@ -167,10 +171,9 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        // ============ ИЗМЕНЕНО: добавлен параметр startParameter ============
         private async System.Threading.Tasks.Task UpsertSeenAsync(
             Data.Models.Core.BotTask entity,
-            string? startParameter, // ← НОВОЕ
+            string? startParameter,
             CancellationToken ct)
         {
             if (entity?.BotContext is null) return;
@@ -186,14 +189,13 @@ namespace MirrorBot.Worker.Flow.Handlers
             long? refOwner = null;
             ObjectId? refBotId = null;
 
-            // ============ НОВАЯ ЛОГИКА: сначала пробуем извлечь из start-параметра ============
+            // Определяем реферера: сначала из start-параметра, потом из владельца зеркала
             var referrerFromParam = ReferralCodeParser.TryParseOwnerTelegramId(startParameter);
 
             if (referrerFromParam.HasValue && referrerFromParam.Value != from.Id)
             {
                 // Есть валидный start-параметр и это не сам пользователь
                 refOwner = referrerFromParam.Value;
-                // Пытаемся найти зеркало этого владельца
                 refBotId = entity.BotContext.MirrorBotId != ObjectId.Empty
                     ? entity.BotContext.MirrorBotId
                     : null;
@@ -206,7 +208,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                 refOwner = entity.BotContext.OwnerTelegramUserId;
                 refBotId = entity.BotContext.MirrorBotId;
             }
-            // ==================================================================================
 
             var seen = new UserSeenEvent(
                 TgUserId: from.Id,
@@ -233,18 +234,15 @@ namespace MirrorBot.Worker.Flow.Handlers
             var user = await _users.UpsertSeenAsync(seen, ct);
             entity.User = user;
 
-            // ============ ИСПРАВЛЕНО: используем существующий метод RegisterReferralAsync ============
+            // Обработка реферала
             if (refOwner.HasValue)
             {
-                // RegisterReferralAsync сам проверит, новый ли это реферал
-                // и отправит уведомления через IReferralNotificationService
                 await _referralService.RegisterReferralAsync(
                     userId: from.Id,
                     referrerOwnerTgUserId: refOwner,
                     referrerMirrorBotId: refBotId,
                     cancellationToken: ct);
             }
-            // ======================================================================================
         }
 
         private async System.Threading.Tasks.Task TryAddMirrorBotByTokenAsync(

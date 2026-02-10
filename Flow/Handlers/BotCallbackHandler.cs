@@ -6,10 +6,12 @@ using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
+using MirrorBot.Worker.Services.Referral;
 using MongoDB.Bson;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using static MirrorBot.Worker.Flow.UI.BotUi.Keyboards;
 
@@ -20,18 +22,24 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IUsersRepository _users;
         private readonly IMirrorBotsRepository _mirrorBots;
         private readonly IAdminNotifier _notifier;
+        private readonly IReferralService _referralService;
+        private readonly IMirrorBotOwnerSettingsRepository _ownerSettingsRepo;
 
         public BotCallbackHandler(
             IUsersRepository users,
             IMirrorBotsRepository mirrorBots,
-            IAdminNotifier notifier)
+            IAdminNotifier notifier,
+            IReferralService referralService,
+            IMirrorBotOwnerSettingsRepository ownerSettingsRepo)
         {          
             _users = users;
             _mirrorBots = mirrorBots;
             _notifier = notifier;
+            _referralService = referralService;
+            _ownerSettingsRepo = ownerSettingsRepo;
         }
 
-        public async System.Threading.Tasks.Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
+        public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(cq.Data)) return;
 
@@ -71,9 +79,14 @@ namespace MirrorBot.Worker.Flow.Handlers
                 return;
             }
 
+            if (string.Equals(cb.Section, BotRoutes.Callbacks.Referral._section, StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleReferralAsync(t, cb, ct);
+                return;
+            }
         }
 
-        private async System.Threading.Tasks.Task HandleMenuAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleMenuAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
@@ -100,7 +113,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async System.Threading.Tasks.Task HandleLangAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleLangAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
@@ -132,7 +145,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async System.Threading.Tasks.Task HandleBotsAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleBotsAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
@@ -230,6 +243,125 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
+        private async Task HandleReferralAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        {
+            var ownerId = t.TgCallbackQuery!.From.Id;
+
+            switch (cb.Action)
+            {
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.MainAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        t.AnswerText = BotUi.Text.Ref(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.Ref(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.StatsAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var stats = await _referralService.GetOwnerStatsAsync(ownerId, ct);
+                        t.AnswerText = BotUi.Text.ReferralStats(t, stats);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralStats(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.LinksAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        // Получаем все боты владельца
+                        var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct);
+
+                        // Генерируем реферальные ссылки
+                        var links = bots
+                            .Where(b => !string.IsNullOrEmpty(b.BotUsername))
+                            .Select(b => $"https://t.me/{b.BotUsername}?start={ownerId}")
+                            .ToList();
+
+                        t.AnswerText = BotUi.Text.ReferralLinks(t, links);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralLinks(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.TransactionsAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var transactions = await _referralService.GetOwnerTransactionsAsync(ownerId, limit: 100, ct);
+                        t.AnswerText = BotUi.Text.ReferralTransactions(t, transactions);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralTransactions(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.SettingsAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.ToggleNewReferralAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+
+                        // Переключаем настройку
+                        await _ownerSettingsRepo.UpdateNotificationSettingsAsync(
+                            ownerId,
+                            notifyOnNewReferral: !settings.NotifyOnNewReferral,
+                            notifyOnReferralEarnings: null,
+                            notifyOnPayout: null,
+                            ct);
+
+                        // Обновляем и показываем
+                        settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.ToggleEarningsAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+
+                        await _ownerSettingsRepo.UpdateNotificationSettingsAsync(
+                            ownerId,
+                            notifyOnNewReferral: null,
+                            notifyOnReferralEarnings: !settings.NotifyOnReferralEarnings,
+                            notifyOnPayout: null,
+                            ct);
+
+                        settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Referral.TogglePayoutAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+
+                        await _ownerSettingsRepo.UpdateNotificationSettingsAsync(
+                            ownerId,
+                            notifyOnNewReferral: null,
+                            notifyOnReferralEarnings: null,
+                            notifyOnPayout: !settings.NotifyOnPayout,
+                            ct);
+
+                        settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
+                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
+                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                default:
+                    return;
+            }
+        }
+
         private async Task<bool> TryLoadOwnedBotAsync(BotTask t, CbData cb, int index, CancellationToken ct)
         {
             var args = cb.Args ?? Array.Empty<string>();
@@ -257,7 +389,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             return true;
         }
 
-        private static async System.Threading.Tasks.Task SendOrEditAsync(BotTask entity, CancellationToken ct)
+        private static async Task SendOrEditAsync(BotTask entity, CancellationToken ct)
         {
             if (entity?.TgClient is null) return;
             if (entity.TgCallbackQuery is null) return;
@@ -271,6 +403,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                 await entity.TgClient.SendMessage(
                     chatId: chatId,
                     text: entity.AnswerText,
+                    parseMode: ParseMode.Html,
                     replyMarkup: entity.AnswerKeyboard,
                     cancellationToken: ct);
                 return;
@@ -282,6 +415,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                     chatId: m.Chat.Id,
                     messageId: m.MessageId,
                     text: entity.AnswerText,
+                    parseMode: ParseMode.Html,
                     replyMarkup: entity.AnswerKeyboard as InlineKeyboardMarkup,
                     cancellationToken: ct);
             }
@@ -296,6 +430,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                 await entity.TgClient.SendMessage(
                     chatId: m.Chat.Id,
                     text: entity.AnswerText,
+                    parseMode: ParseMode.Html,
                     replyMarkup: entity.AnswerKeyboard,
                     cancellationToken: ct);
             }
@@ -309,7 +444,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             return ObjectId.TryParse(args[index], out id);
         }
 
-        private async System.Threading.Tasks.Task UpsertSeenAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
+        private async Task UpsertSeenAsync(Data.Models.Core.BotTask entity, CancellationToken ct)
         {
             if (entity?.BotContext is null) return;
             if (entity.TgCallbackQuery?.From is not { } from) return;

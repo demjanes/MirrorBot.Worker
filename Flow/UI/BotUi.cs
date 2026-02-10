@@ -128,13 +128,207 @@ namespace MirrorBot.Worker.Flow.UI
                 {
                     case (UiLang.En):
                         {
-                            sb.AppendLine($"REF message:");
+                            sb.AppendLine("💰 <b>Referral Program</b>");
+                            sb.AppendLine();
+                            sb.AppendLine("Invite users to your bots and earn:");
+                            sb.AppendLine("• Get notifications about new referrals");
+                            sb.AppendLine("• Track statistics and earnings");
+                            sb.AppendLine("• Withdraw funds");
                             break;
                         }
                     default:
                     case (UiLang.Ru):
                         {
-                            sb.AppendLine($"Рефералка");
+                            sb.AppendLine("💰 <b>Реферальная программа</b>");
+                            sb.AppendLine();
+                            sb.AppendLine("Приглашай пользователей в свои боты и зарабатывай:");
+                            sb.AppendLine("• Получай уведомления о новых рефералах");
+                            sb.AppendLine("• Отслеживай статистику и заработок");
+                            sb.AppendLine("• Выводи средства");
+                            break;
+                        }
+                }
+                return sb.ToString();
+            }
+
+            public static string ReferralStats(Data.Models.Core.BotTask entity, ReferralStats? stats)
+            {
+                if (stats == null)
+                {
+                    return entity.AnswerLang == UiLang.En
+                        ? "📊 <b>Statistics</b>\n\nNo data yet."
+                        : "📊 <b>Статистика</b>\n\nДанных пока нет.";
+                }
+
+                // Вычисляем выведенную сумму
+                var totalWithdrawn = stats.TotalReferralRevenue - stats.Balance;
+
+                var sb = new StringBuilder();
+                switch (entity.AnswerLang)
+                {
+                    case (UiLang.En):
+                        {
+                            sb.AppendLine("📊 <b>Referral Statistics</b>");
+                            sb.AppendLine();
+                            sb.AppendLine($"👥 Total referrals: <b>{stats.TotalReferrals}</b>");
+                            sb.AppendLine($"💳 Paying referrals: <b>{stats.PaidReferrals}</b>");
+                            sb.AppendLine();
+                            sb.AppendLine($"💰 Total earned: <b>{stats.TotalReferralRevenue:F2} {stats.Currency}</b>");
+                            sb.AppendLine($"💵 Balance: <b>{stats.Balance:F2} {stats.Currency}</b>");
+                            sb.AppendLine($"📤 Withdrawn: <b>{totalWithdrawn:F2} {stats.Currency}</b>");
+                            break;
+                        }
+                    default:
+                    case (UiLang.Ru):
+                        {
+                            sb.AppendLine("📊 <b>Статистика рефералов</b>");
+                            sb.AppendLine();
+                            sb.AppendLine($"👥 Всего рефералов: <b>{stats.TotalReferrals}</b>");
+                            sb.AppendLine($"💳 Платящих рефералов: <b>{stats.PaidReferrals}</b>");
+                            sb.AppendLine();
+                            sb.AppendLine($"💰 Всего заработано: <b>{stats.TotalReferralRevenue:F2} {stats.Currency}</b>");
+                            sb.AppendLine($"💵 Баланс: <b>{stats.Balance:F2} {stats.Currency}</b>");
+                            sb.AppendLine($"📤 Выведено: <b>{totalWithdrawn:F2} {stats.Currency}</b>");
+                            break;
+                        }
+                }
+                return sb.ToString();
+            }
+
+            public static string ReferralLinks(Data.Models.Core.BotTask entity, List<string> links)
+            {
+                var sb = new StringBuilder();
+                switch (entity.AnswerLang)
+                {
+                    case (UiLang.En):
+                        {
+                            sb.AppendLine("🔗 <b>Referral Links</b>");
+                            sb.AppendLine();
+                            if (links.Count == 0)
+                            {
+                                sb.AppendLine("You don't have any bots yet.");
+                                sb.AppendLine("Add bots to get referral links.");
+                            }
+                            else
+                            {
+                                sb.AppendLine("Share these links to invite users:");
+                                sb.AppendLine();
+                                foreach (var link in links)
+                                {
+                                    sb.AppendLine($"• <code>{link}</code>");
+                                }
+                            }
+                            break;
+                        }
+                    default:
+                    case (UiLang.Ru):
+                        {
+                            sb.AppendLine("🔗 <b>Реферальные ссылки</b>");
+                            sb.AppendLine();
+                            if (links.Count == 0)
+                            {
+                                sb.AppendLine("У вас пока нет ботов.");
+                                sb.AppendLine("Добавьте ботов, чтобы получить реферальные ссылки.");
+                            }
+                            else
+                            {
+                                sb.AppendLine("Делитесь этими ссылками для приглашения пользователей:");
+                                sb.AppendLine();
+                                foreach (var link in links)
+                                {
+                                    sb.AppendLine($"• <code>{link}</code>");
+                                }
+                            }
+                            break;
+                        }
+                }
+                return sb.ToString();
+            }
+
+            public static string ReferralTransactions(Data.Models.Core.BotTask entity, List<ReferralTransaction> txns)
+            {
+                var sb = new StringBuilder();
+                switch (entity.AnswerLang)
+                {
+                    case (UiLang.En):
+                        {
+                            sb.AppendLine("📜 <b>Transaction History</b>");
+                            sb.AppendLine();
+                            if (txns.Count == 0)
+                            {
+                                sb.AppendLine("No transactions yet.");
+                            }
+                            else
+                            {
+                                foreach (var txn in txns.Take(10))
+                                {
+                                    var kind = txn.Kind == ReferralTransactionKind.Accrual ? "➕" : "➖";
+                                    var date = txn.CreatedAtUtc.ToString("dd.MM.yyyy HH:mm");
+                                    sb.AppendLine($"{kind} <b>{txn.Amount:F2} {txn.Currency}</b>");
+                                    sb.AppendLine($"   {txn.Description}");
+                                    sb.AppendLine($"   {date}");
+                                    sb.AppendLine();
+                                }
+                                if (txns.Count > 10)
+                                {
+                                    sb.AppendLine($"<i>Showing last 10 of {txns.Count} transactions</i>");
+                                }
+                            }
+                            break;
+                        }
+                    default:
+                    case (UiLang.Ru):
+                        {
+                            sb.AppendLine("📜 <b>История транзакций</b>");
+                            sb.AppendLine();
+                            if (txns.Count == 0)
+                            {
+                                sb.AppendLine("Транзакций пока нет.");
+                            }
+                            else
+                            {
+                                foreach (var txn in txns.Take(10))
+                                {
+                                    var kind = txn.Kind == ReferralTransactionKind.Accrual ? "➕" : "➖";
+                                    var date = txn.CreatedAtUtc.ToString("dd.MM.yyyy HH:mm");
+                                    sb.AppendLine($"{kind} <b>{txn.Amount:F2} {txn.Currency}</b>");
+                                    sb.AppendLine($"   {txn.Description}");
+                                    sb.AppendLine($"   {date}");
+                                    sb.AppendLine();
+                                }
+                                if (txns.Count > 10)
+                                {
+                                    sb.AppendLine($"<i>Показаны последние 10 из {txns.Count} транзакций</i>");
+                                }
+                            }
+                            break;
+                        }
+                }
+                return sb.ToString();
+            }
+
+            public static string ReferralSettings(Data.Models.Core.BotTask entity, MirrorBotOwnerSettings settings)
+            {
+                var sb = new StringBuilder();
+                switch (entity.AnswerLang)
+                {
+                    case (UiLang.En):
+                        {
+                            sb.AppendLine("⚙️ <b>Notification Settings</b>");
+                            sb.AppendLine();
+                            sb.AppendLine($"New referrals: {(settings.NotifyOnNewReferral ? "✅ ON" : "❌ OFF")}");
+                            sb.AppendLine($"Balance updates: {(settings.NotifyOnReferralEarnings ? "✅ ON" : "❌ OFF")}");
+                            sb.AppendLine($"Withdrawals: {(settings.NotifyOnPayout ? "✅ ON" : "❌ OFF")}");
+                            break;
+                        }
+                    default:
+                    case (UiLang.Ru):
+                        {
+                            sb.AppendLine("⚙️ <b>Настройки уведомлений</b>");
+                            sb.AppendLine();
+                            sb.AppendLine($"Новые рефералы: {(settings.NotifyOnNewReferral ? "✅ ВКЛ" : "❌ ВЫКЛ")}");
+                            sb.AppendLine($"Пополнения баланса: {(settings.NotifyOnReferralEarnings ? "✅ ВКЛ" : "❌ ВЫКЛ")}");
+                            sb.AppendLine($"Выводы средств: {(settings.NotifyOnPayout ? "✅ ВКЛ" : "❌ ВЫКЛ")}");
                             break;
                         }
                 }
@@ -430,13 +624,93 @@ namespace MirrorBot.Worker.Flow.UI
                 {
                     new []
                     {
-                        InlineKeyboardButton.WithCallbackData("Меню", BotRoutes.Callbacks.Menu.MenuMain),
-                        InlineKeyboardButton.WithCallbackData("Помощь", BotRoutes.Callbacks.Menu.Help),
+                        InlineKeyboardButton.WithCallbackData("📊 Статистика", BotRoutes.Callbacks.Referral.Stats),
+                        InlineKeyboardButton.WithCallbackData("🔗 Ссылки", BotRoutes.Callbacks.Referral.Links),
                     },
                     new []
                     {
-                        InlineKeyboardButton.WithCallbackData("Язык", BotRoutes.Callbacks.Lang.Choose),
-                        InlineKeyboardButton.WithCallbackData("Мои боты", BotRoutes.Callbacks.Bot.My),
+                        InlineKeyboardButton.WithCallbackData("📜 Транзакции", BotRoutes.Callbacks.Referral.Transactions),
+                        InlineKeyboardButton.WithCallbackData("⚙️ Настройки", BotRoutes.Callbacks.Referral.Settings),
+                    },
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData("↩️ Меню", BotRoutes.Callbacks.Menu.MenuMain),
+                    }
+                };
+
+                return new InlineKeyboardMarkup(kb);
+            }
+
+            public static InlineKeyboardMarkup ReferralStats(Data.Models.Core.BotTask entity)
+            {
+                var kb = new[]
+                {
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData("↩️ Назад", BotRoutes.Callbacks.Referral.Main),
+                    }
+                };
+
+                return new InlineKeyboardMarkup(kb);
+            }
+
+            public static InlineKeyboardMarkup ReferralLinks(Data.Models.Core.BotTask entity)
+            {
+                var kb = new[]
+                {
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData("↩️ Назад", BotRoutes.Callbacks.Referral.Main),
+                    }
+                };
+
+                return new InlineKeyboardMarkup(kb);
+            }
+
+            public static InlineKeyboardMarkup ReferralTransactions(Data.Models.Core.BotTask entity)
+            {
+                var kb = new[]
+                {
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData("↩️ Назад", BotRoutes.Callbacks.Referral.Main),
+                    }
+                };
+
+                return new InlineKeyboardMarkup(kb);
+            }
+
+            public static InlineKeyboardMarkup ReferralSettings(Data.Models.Core.BotTask entity, MirrorBotOwnerSettings settings)
+            {
+                var newRefText = settings.NotifyOnNewReferral
+                    ? "🔕 Новые рефералы"
+                    : "🔔 Новые рефералы";
+
+                var earningsText = settings.NotifyOnReferralEarnings
+                    ? "🔕 Пополнения"
+                    : "🔔 Пополнения";
+
+                var payoutText = settings.NotifyOnPayout
+                    ? "🔕 Выводы"
+                    : "🔔 Выводы";
+
+                var kb = new[]
+                {
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData(newRefText, BotRoutes.Callbacks.Referral.ToggleNewReferral),
+                    },
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData(earningsText, BotRoutes.Callbacks.Referral.ToggleEarnings),
+                    },
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData(payoutText, BotRoutes.Callbacks.Referral.TogglePayout),
+                    },
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData("↩️ Назад", BotRoutes.Callbacks.Referral.Main),
                     }
                 };
 
