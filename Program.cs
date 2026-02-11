@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
+using MirrorBot.Worker.Data.Models.Subscription;
 using MirrorBot.Worker.Data.Repositories.Implementations;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow;
@@ -141,6 +142,11 @@ try
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} | [{Level:u3}] | {SourceContext} | {Message:lj}:{Exception}{NewLine}",
                 fileSizeLimitBytes: 8_388_608,
                 retainedFileCountLimit: 31));
+
+
+
+        // ============ Data Seeders ============
+        services.AddScoped<SubscriptionPlanSeeder>();
     })
     .Build();
 
@@ -153,6 +159,22 @@ catch (Exception ex)
     Console.WriteLine("Press any key to exit...");
     Console.ReadKey();
     throw;
+}
+
+
+// ============ Запуск seeder'ов ============
+try
+{
+    using var scope = host.Services.CreateScope();
+    var seeder = scope.ServiceProvider.GetRequiredService<SubscriptionPlanSeeder>();
+    await seeder.SeedAsync();
+    Console.WriteLine("=== Seeding completed ===");
+}
+catch (Exception ex)
+{
+    Console.WriteLine("=== ERROR DURING SEEDING ===");
+    Console.WriteLine(ex.ToString());
+    // Продолжаем работу даже если seeding не удался
 }
 
 try
@@ -168,3 +190,21 @@ catch (Exception ex)
     Console.ReadKey();
     throw;
 }
+
+
+
+try
+{
+    await host.RunAsync();
+    Console.WriteLine("=== host.RunAsync() завершен ===");
+}
+catch (Exception ex)
+{
+    Console.WriteLine("=== FATAL ERROR ===");
+    Console.WriteLine(ex.ToString());
+    Console.WriteLine("Press any key to exit...");
+    Console.ReadKey();
+    throw;
+}
+
+
