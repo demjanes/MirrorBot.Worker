@@ -317,7 +317,7 @@ namespace MirrorBot.Worker.Services.Payments
 
                 // Формируем текст
                 var expiresAt = DateTime.UtcNow.AddDays(plan.DurationDays);
-                var text = BotUi.Text.PaymentSuccessNotification(
+                var text = SubscriptionUi.PaymentSuccessNotification(
                     lang,
                     plan.Name,
                     payment.Amount,

@@ -5,6 +5,7 @@ using MirrorBot.Worker.Data.Models.Core;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
+using MirrorBot.Worker.Flow.UI.Models;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.Payments;
 using MirrorBot.Worker.Services.Referral;
@@ -15,7 +16,6 @@ using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
-using static MirrorBot.Worker.Flow.UI.BotUi.Keyboards;
 
 namespace MirrorBot.Worker.Flow.Handlers
 {
@@ -37,7 +37,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             ISubscriptionService subscriptionService,
             IMirrorBotOwnerSettingsRepository ownerSettingsRepo,
             IPaymentService paymentService)
-        {          
+        {
             _users = users;
             _mirrorBots = mirrorBots;
             _notifier = notifier;
@@ -105,20 +105,20 @@ namespace MirrorBot.Worker.Flow.Handlers
             switch (cb.Action)
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Menu.MenuMainAction, StringComparison.OrdinalIgnoreCase):
-                    t.AnswerText = BotUi.Text.Menu(t);
-                    t.AnswerKeyboard = BotUi.Keyboards.Menu(t);
+                    t.AnswerText = CommonUi.Menu(t);
+                    t.AnswerKeyboard = CommonUi.MenuKeyboard(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
                 case string s when s.Equals(BotRoutes.Callbacks.Menu.HelpAction, StringComparison.OrdinalIgnoreCase):
-                    t.AnswerText = BotUi.Text.Help(t);
-                    t.AnswerKeyboard = BotUi.Keyboards.Help(t);
+                    t.AnswerText = CommonUi.Help(t);
+                    t.AnswerKeyboard = CommonUi.HelpKeyboard(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
                 case string s when s.Equals(BotRoutes.Callbacks.Menu.RefAction, StringComparison.OrdinalIgnoreCase):
-                    t.AnswerText = BotUi.Text.Ref(t);
-                    t.AnswerKeyboard = BotUi.Keyboards.Ref(t);
+                    t.AnswerText = ReferralUi.Ref(t);
+                    t.AnswerKeyboard = ReferralUi.RefKeyboard(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
@@ -132,8 +132,8 @@ namespace MirrorBot.Worker.Flow.Handlers
             switch (cb.Action)
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Lang.ChooseAction, StringComparison.OrdinalIgnoreCase):
-                    t.AnswerText = BotUi.Text.LangChoose(t);
-                    t.AnswerKeyboard = BotUi.Keyboards.LangChoose(t);
+                    t.AnswerText = LanguageUi.Choose(t);
+                    t.AnswerKeyboard = LanguageUi.ChooseKeyboard(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
@@ -148,8 +148,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             DateTime.UtcNow,
                             ct);
 
-                        t.AnswerText = BotUi.Text.LangSet(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.LangChoose(t);
+                        t.AnswerText = LanguageUi.Set(t);
+                        t.AnswerKeyboard = LanguageUi.ChooseKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -164,7 +164,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             switch (cb.Action)
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Bot.AddAction, StringComparison.OrdinalIgnoreCase):
-                    t.AnswerText = BotUi.Text.BotAdd(t);
+                    t.AnswerText = BotManagementUi.Add(t);
                     await SendOrEditAsync(t, ct);
                     return;
 
@@ -178,8 +178,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             Title: "@" + (b.BotUsername ?? "unknown"),
                             IsEnabled: b.IsEnabled)).ToList();
 
-                        t.AnswerText = BotUi.Text.BotsMy(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotsMy(t, items);
+                        t.AnswerText = BotManagementUi.MyBots(t);
+                        t.AnswerKeyboard = BotManagementUi.MyBotsKeyboard(t, items);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -188,8 +188,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        t.AnswerText = BotUi.Text.BotEdit(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotManagementUi.Edit(t);
+                        t.AnswerKeyboard = BotManagementUi.EditKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -201,8 +201,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                         var nowUtc = DateTime.UtcNow;
                         t.BotMirror = await _mirrorBots.SetEnabledAsync(t.BotMirror!.Id, false, nowUtc, ct);
 
-                        t.AnswerText = BotUi.Text.BotEdit(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotManagementUi.Edit(t);
+                        t.AnswerKeyboard = BotManagementUi.EditKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -214,8 +214,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                         var nowUtc = DateTime.UtcNow;
                         t.BotMirror = await _mirrorBots.SetEnabledAsync(t.BotMirror!.Id, true, nowUtc, ct);
 
-                        t.AnswerText = BotUi.Text.BotEdit(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotManagementUi.Edit(t);
+                        t.AnswerKeyboard = BotManagementUi.EditKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -224,8 +224,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        t.AnswerText = BotUi.Text.BotDeleteConfirm(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotDeleteConfirm(t);
+                        t.AnswerText = BotManagementUi.DeleteConfirm(t);
+                        t.AnswerKeyboard = BotManagementUi.DeleteConfirmKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -236,8 +236,8 @@ namespace MirrorBot.Worker.Flow.Handlers
 
                         await _mirrorBots.DeleteAsync(t.BotMirror!.Id, ct);
 
-                        t.AnswerText = BotUi.Text.BotDeleteYesResult(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotsMy(t, null);
+                        t.AnswerText = BotManagementUi.DeleteYesResult(t);
+                        t.AnswerKeyboard = BotManagementUi.MyBotsKeyboard(t, null);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -246,8 +246,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         if (!await TryLoadOwnedBotAsync(t, cb, 0, ct)) return;
 
-                        t.AnswerText = BotUi.Text.BotEdit(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.BotEdit(t);
+                        t.AnswerText = BotManagementUi.Edit(t);
+                        t.AnswerKeyboard = BotManagementUi.EditKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -265,8 +265,8 @@ namespace MirrorBot.Worker.Flow.Handlers
             {
                 case string s when s.Equals(BotRoutes.Callbacks.Referral.MainAction, StringComparison.OrdinalIgnoreCase):
                     {
-                        t.AnswerText = BotUi.Text.Ref(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.Ref(t);
+                        t.AnswerText = ReferralUi.Ref(t);
+                        t.AnswerKeyboard = ReferralUi.RefKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -274,25 +274,23 @@ namespace MirrorBot.Worker.Flow.Handlers
                 case string s when s.Equals(BotRoutes.Callbacks.Referral.StatsAction, StringComparison.OrdinalIgnoreCase):
                     {
                         var stats = await _referralService.GetOwnerStatsAsync(ownerId, ct);
-                        t.AnswerText = BotUi.Text.ReferralStats(t, stats);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralStats(t);
+                        t.AnswerText = ReferralUi.Stats(t, stats);
+                        t.AnswerKeyboard = ReferralUi.StatsKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
 
                 case string s when s.Equals(BotRoutes.Callbacks.Referral.LinksAction, StringComparison.OrdinalIgnoreCase):
                     {
-                        // Получаем все боты владельца
                         var bots = await _mirrorBots.GetByOwnerTgIdAsync(ownerId, ct);
 
-                        // Генерируем реферальные ссылки
                         var links = bots
                             .Where(b => !string.IsNullOrEmpty(b.BotUsername))
                             .Select(b => $"https://t.me/{b.BotUsername}?start={ownerId}")
                             .ToList();
 
-                        t.AnswerText = BotUi.Text.ReferralLinks(t, links);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralLinks(t);
+                        t.AnswerText = ReferralUi.Links(t, links);
+                        t.AnswerKeyboard = ReferralUi.LinksKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -300,8 +298,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                 case string s when s.Equals(BotRoutes.Callbacks.Referral.TransactionsAction, StringComparison.OrdinalIgnoreCase):
                     {
                         var transactions = await _referralService.GetOwnerTransactionsAsync(ownerId, limit: 100, ct);
-                        t.AnswerText = BotUi.Text.ReferralTransactions(t, transactions);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralTransactions(t);
+                        t.AnswerText = ReferralUi.Transactions(t, transactions);
+                        t.AnswerKeyboard = ReferralUi.TransactionsKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -309,8 +307,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                 case string s when s.Equals(BotRoutes.Callbacks.Referral.SettingsAction, StringComparison.OrdinalIgnoreCase):
                     {
                         var settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
-                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        t.AnswerText = ReferralUi.Settings(t, settings);
+                        t.AnswerKeyboard = ReferralUi.SettingsKeyboard(t, settings);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -319,7 +317,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         var settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
 
-                        // Переключаем настройку
                         await _ownerSettingsRepo.UpdateNotificationSettingsAsync(
                             ownerId,
                             notifyOnNewReferral: !settings.NotifyOnNewReferral,
@@ -327,10 +324,9 @@ namespace MirrorBot.Worker.Flow.Handlers
                             notifyOnPayout: null,
                             ct);
 
-                        // Обновляем и показываем
                         settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
-                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        t.AnswerText = ReferralUi.Settings(t, settings);
+                        t.AnswerKeyboard = ReferralUi.SettingsKeyboard(t, settings);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -347,8 +343,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             ct);
 
                         settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
-                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        t.AnswerText = ReferralUi.Settings(t, settings);
+                        t.AnswerKeyboard = ReferralUi.SettingsKeyboard(t, settings);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -365,8 +361,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             ct);
 
                         settings = await _ownerSettingsRepo.GetOrCreateAsync(ownerId, ct);
-                        t.AnswerText = BotUi.Text.ReferralSettings(t, settings);
-                        t.AnswerKeyboard = BotUi.Keyboards.ReferralSettings(t, settings);
+                        t.AnswerText = ReferralUi.Settings(t, settings);
+                        t.AnswerKeyboard = ReferralUi.SettingsKeyboard(t, settings);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -386,8 +382,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
 
-                        t.AnswerText = BotUi.Text.SubscriptionInfo(t, subscriptionInfo);
-                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, subscriptionInfo.IsPremium);
+                        t.AnswerText = SubscriptionUi.Info(t, subscriptionInfo);
+                        t.AnswerKeyboard = SubscriptionUi.InfoKeyboard(t, subscriptionInfo.IsPremium);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -403,8 +399,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             DurationDays: p.DurationDays,
                             IsCurrentPlan: false)).ToList();
 
-                        t.AnswerText = BotUi.Text.SubscriptionPlans(t, planItems);
-                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionPlans(t, planItems);
+                        t.AnswerText = SubscriptionUi.Plans(t, planItems);
+                        t.AnswerKeyboard = SubscriptionUi.PlansKeyboard(t, planItems);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -416,10 +412,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                         if (!TryGetObjectId(args, 0, out var planId))
                             return;
 
-                        // Получаем username бота из контекста
                         var botUsername = t.BotContext?.BotUsername ?? "unknown_bot";
 
-                        // Создаем платеж с указанием бота
                         var (success, paymentUrl, errorMessage) = await _paymentService.CreatePaymentAsync(
                             userId,
                             planId,
@@ -436,24 +430,23 @@ namespace MirrorBot.Worker.Flow.Handlers
                             return;
                         }
 
-                        // Используем BotUi для текста и клавиатуры
-                        t.AnswerText = BotUi.Text.PaymentLink(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.PaymentLink(t, paymentUrl!);
+                        t.AnswerText = SubscriptionUi.PaymentLink(t);
+                        t.AnswerKeyboard = SubscriptionUi.PaymentLinkKeyboard(t, paymentUrl!);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
 
                 case string s when s.Equals(BotRoutes.Callbacks.Subscription.CancelAction, StringComparison.OrdinalIgnoreCase):
                     {
-                        t.AnswerText = BotUi.Text.SubscriptionCancelConfirm(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionCancelConfirm(t);
+                        t.AnswerText = SubscriptionUi.CancelConfirm(t);
+                        t.AnswerKeyboard = SubscriptionUi.CancelConfirmKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
 
                 case string s when s.Equals(BotRoutes.Callbacks.Subscription.CancelYesAction, StringComparison.OrdinalIgnoreCase):
                     {
-                        var (success, errorMessage) = await _subscriptionService.CancelSubscriptionAsync(userId, ct); // ✅ НОВОЕ
+                        var (success, errorMessage) = await _subscriptionService.CancelSubscriptionAsync(userId, ct);
 
                         if (!success)
                         {
@@ -464,8 +457,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                             return;
                         }
 
-                        t.AnswerText = BotUi.Text.SubscriptionCanceled(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, isPremium: false);
+                        t.AnswerText = SubscriptionUi.Canceled(t);
+                        t.AnswerKeyboard = SubscriptionUi.InfoKeyboard(t, isPremium: false);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -474,50 +467,18 @@ namespace MirrorBot.Worker.Flow.Handlers
                     {
                         var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
 
-                        t.AnswerText = BotUi.Text.SubscriptionInfo(t, subscriptionInfo);
-                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, subscriptionInfo.IsPremium);
+                        t.AnswerText = SubscriptionUi.Info(t, subscriptionInfo);
+                        t.AnswerKeyboard = SubscriptionUi.InfoKeyboard(t, subscriptionInfo.IsPremium);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
 
-                case string s when s.Equals(BotRoutes.Callbacks.Subscription.BuyAction, StringComparison.OrdinalIgnoreCase):
-                    {
-                        var args = cb.Args ?? Array.Empty<string>();
-                        if (!TryGetObjectId(args, 0, out var planId))
-                            return;
-
-                        // ✅ Получаем username бота из контекста
-                        var botUsername = t.BotContext?.BotUsername ?? "unknown_bot";
-
-                        // Создаем платеж с указанием бота
-                        var (success, paymentUrl, errorMessage) = await _paymentService.CreatePaymentAsync(
-                            userId,
-                            planId,
-                            botUsername,  // ✅ Передаем username
-                            provider: null,
-                            cancellationToken: ct);
-
-                        if (!success)
-                        {
-                            t.AnswerText = t.AnswerLang == UiLang.En
-                                ? $"❌ Error: {errorMessage}"
-                                : $"❌ Ошибка: {errorMessage}";
-                            await SendOrEditAsync(t, ct);
-                            return;
-                        }
-
-                        // Используем BotUi для текста и клавиатуры
-                        t.AnswerText = BotUi.Text.PaymentLink(t);
-                        t.AnswerKeyboard = BotUi.Keyboards.PaymentLink(t, paymentUrl!);
-                        await SendOrEditAsync(t, ct);
-                        return;
-                    }
                 case var cmd when cmd.Equals(BotRoutes.Callbacks.Subscription.PaymentsAction, StringComparison.OrdinalIgnoreCase):
                     {
                         var payments = await _paymentService.GetUserPaymentsAsync(userId, ct);
 
-                        t.AnswerText = BotUi.Text.UserPayments(t, payments);
-                        t.AnswerKeyboard = BotUi.Keyboards.UserPayments(t);
+                        t.AnswerText = SubscriptionUi.UserPayments(t, payments);
+                        t.AnswerKeyboard = SubscriptionUi.UserPaymentsKeyboard(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -526,6 +487,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                     return;
             }
         }
+
         private async Task<bool> TryLoadOwnedBotAsync(BotTask t, CbData cb, int index, CancellationToken ct)
         {
             var args = cb.Args ?? Array.Empty<string>();
@@ -536,8 +498,8 @@ namespace MirrorBot.Worker.Flow.Handlers
             t.BotMirror = await _mirrorBots.GetByIdAsync(botId, ct);
             if (t.BotMirror is null)
             {
-                t.AnswerText = BotUi.Text.BotEditNotFound(t);
-                t.AnswerKeyboard = BotUi.Keyboards.BotsMy(t, null);
+                t.AnswerText = BotManagementUi.EditNotFound(t);
+                t.AnswerKeyboard = BotManagementUi.MyBotsKeyboard(t, null);
                 await SendOrEditAsync(t, ct);
                 return false;
             }
@@ -545,7 +507,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             // security check: только владелец
             if (t.BotMirror.OwnerTelegramUserId != t.TgCallbackQuery!.From.Id)
             {
-                t.AnswerText = BotUi.Text.BotEditNoAccess(t);
+                t.AnswerText = BotManagementUi.EditNoAccess(t);
                 await SendOrEditAsync(t, ct);
                 return false;
             }
@@ -561,7 +523,6 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             var chatId = entity.TgChatId ?? entity.TgCallbackQuery.From.Id;
 
-            // Если callback без Message (редко), отправляем новое сообщение
             if (entity.TgCallbackQuery.Message is not { } m)
             {
                 await entity.TgClient.SendMessage(
@@ -648,7 +609,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                 $"#id{seen.TgUserId} @{seen.TgUsername}\n" +
                 $"/{entity.TgCallbackQuery.Data}\n" +
                 $"@{entity.BotContext.BotUsername}");
-
 
             var (user, isNewUser) = await _users.UpsertSeenAsync(seen, ct);
 
