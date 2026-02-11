@@ -2,135 +2,72 @@
 using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Data.Repositories.Implementations
 {
     public class ConversationRepository : BaseRepository<Conversation>, IConversationRepository
     {
+        private const string CollectionName = "conversations";
+
         public ConversationRepository(IMongoDatabase database)
-            : base(database, "conversations")
+            : base(database, CollectionName)
         {
-            // Создаем индексы для быстрого поиска
-            CreateIndexes();
+            EnsureIndexes();
         }
 
-        private void CreateIndexes()
+        private void EnsureIndexes()
         {
-            var indexKeys = Builders<Conversation>.IndexKeys
-                .Ascending(x => x.UserId)
-                .Ascending(x => x.BotId)
+            // Уникальный индекс по userId
+            var userIdIndex = Builders<Conversation>.IndexKeys
+                .Ascending(x => x.UserId);
+
+            var userIdOptions = new CreateIndexOptions
+            {
+                Name = "ux_userId",
+                Unique = true
+            };
+
+            _collection.Indexes.CreateOne(
+                new CreateIndexModel<Conversation>(userIdIndex, userIdOptions));
+
+            // Индекс по активности
+            var activityIndex = Builders<Conversation>.IndexKeys
                 .Descending(x => x.LastActivityUtc);
 
-            var indexModel = new CreateIndexModel<Conversation>(indexKeys);
-            _collection.Indexes.CreateOne(indexModel);
+            _collection.Indexes.CreateOne(
+                new CreateIndexModel<Conversation>(activityIndex));
         }
 
-        public async Task<Conversation?> GetActiveConversationAsync(
+        public async Task<Conversation?> GetByUserAsync(
             long userId,
-            string botId,
             CancellationToken cancellationToken = default)
         {
+            var filter = Builders<Conversation>.Filter.Eq(x => x.UserId, userId);
+
             return await _collection
-                .Find(x => x.UserId == userId && x.BotId == botId && x.IsActive)
-                .SortByDescending(x => x.LastActivityUtc)
+                .Find(filter)
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        public async Task<List<Conversation>> GetUserConversationsAsync(
-            long userId,
+        public async Task<Conversation> CreateOrUpdateAsync(
+            Conversation conversation,
             CancellationToken cancellationToken = default)
         {
-            return await _collection
-                .Find(x => x.UserId == userId)
-                .SortByDescending(x => x.LastActivityUtc)
-                .ToListAsync(cancellationToken);
-        }
+            var filter = Builders<Conversation>.Filter.Eq(x => x.UserId, conversation.UserId);
 
-        public async Task<bool> AddMessageAsync(
-            ObjectId conversationId,
-            EnglishMessage message,
-            CancellationToken cancellationToken = default)
-        {
-            var update = Builders<Conversation>.Update
-                .Push(x => x.Messages, message)
-                .Set(x => x.LastActivityUtc, DateTime.UtcNow)
-                .Inc(x => x.TotalTokensUsed, message.TokensUsed);
+            var options = new FindOneAndReplaceOptions<Conversation>
+            {
+                IsUpsert = true,
+                ReturnDocument = ReturnDocument.After
+            };
 
-            var result = await _collection.UpdateOneAsync(
-                x => x.Id == conversationId,
-                update,
-                cancellationToken: cancellationToken);
+            var result = await _collection.FindOneAndReplaceAsync(
+                filter,
+                conversation,
+                options,
+                cancellationToken);
 
-            return result.ModifiedCount > 0;
-        }
-
-        public async Task<bool> UpdateModeAsync(
-            ObjectId conversationId,
-            string mode,
-            CancellationToken cancellationToken = default)
-        {
-            var update = Builders<Conversation>.Update
-                .Set(x => x.Mode, mode)
-                .Set(x => x.LastActivityUtc, DateTime.UtcNow);
-
-            var result = await _collection.UpdateOneAsync(
-                x => x.Id == conversationId,
-                update,
-                cancellationToken: cancellationToken);
-
-            return result.ModifiedCount > 0;
-        }
-
-        public async Task<bool> CloseConversationAsync(
-            ObjectId conversationId,
-            CancellationToken cancellationToken = default)
-        {
-            var update = Builders<Conversation>.Update
-                .Set(x => x.IsActive, false);
-
-            var result = await _collection.UpdateOneAsync(
-                x => x.Id == conversationId,
-                update,
-                cancellationToken: cancellationToken);
-
-            return result.ModifiedCount > 0;
-        }
-
-        public async Task<List<EnglishMessage>> GetRecentMessagesAsync(
-            ObjectId conversationId,
-            int count,
-            CancellationToken cancellationToken = default)
-        {
-            var conversation = await GetByIdAsync(conversationId, cancellationToken);
-
-            if (conversation == null)
-                return new List<EnglishMessage>();
-
-            return conversation.Messages
-                .OrderByDescending(x => x.TimestampUtc)
-                .Take(count)
-                .OrderBy(x => x.TimestampUtc)
-                .ToList();
-        }
-
-        public async Task<bool> UpdateLastActivityAsync(
-            ObjectId conversationId,
-            CancellationToken cancellationToken = default)
-        {
-            var update = Builders<Conversation>.Update
-                .Set(x => x.LastActivityUtc, DateTime.UtcNow);
-
-            var result = await _collection.UpdateOneAsync(
-                x => x.Id == conversationId,
-                update,
-                cancellationToken: cancellationToken);
-
-            return result.ModifiedCount > 0;
+            return result;
         }
     }
 }

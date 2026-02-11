@@ -29,6 +29,11 @@ namespace MirrorBot.Worker.Services.AI.Interfaces
         /// Название провайдера
         /// </summary>
         string ProviderName { get; }
+
+        /// <summary>
+        /// Проверка доступности сервиса
+        /// </summary>
+        Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default);
     }
 
     /// <summary>

@@ -3,9 +3,11 @@ using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Services.AI.Interfaces;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Web;
 
@@ -23,21 +25,13 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
         public string ProviderName => "YandexSpeechKit";
 
         public YandexSpeechKitProvider(
-            HttpClient httpClient,
+            IHttpClientFactory httpClientFactory,
             IOptions<SpeechConfiguration> speechConfig,
             ILogger<YandexSpeechKitProvider> logger)
         {
-            _httpClient = httpClient;
+            _httpClient = httpClientFactory.CreateClient("yandex_speech");
             _config = speechConfig.Value.YandexSpeechKit;
             _logger = logger;
-
-            ConfigureHttpClient();
-        }
-
-        private void ConfigureHttpClient()
-        {
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Api-Key", _config.ApiKey);
         }
 
         public async Task<SpeechToTextResponse> TranscribeAudioAsync(
@@ -46,60 +40,57 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
         {
             try
             {
-                _logger.LogInformation("Transcribing audio using Yandex SpeechKit");
+                using var content = new MultipartFormDataContent();
+                content.Add(new ByteArrayContent(request.AudioData), "audio", "audio.ogg");
+                content.Add(new StringContent(_config.FolderId), "folderId");
+                content.Add(new StringContent(request.Language), "lang");
 
-                // Yandex SpeechKit принимает аудио в формате LINEAR16 PCM
-                var queryParams = HttpUtility.ParseQueryString(string.Empty);
-                queryParams["topic"] = "general";
-                queryParams["lang"] = request.Language;
-                queryParams["format"] = "oggopus"; // Telegram voice format
-                queryParams["folderId"] = _config.FolderId;
+                var httpRequest = new HttpRequestMessage(HttpMethod.Post, _config.SttUrl)
+                {
+                    Content = content
+                };
 
-                var url = $"{_config.SttUrl}?{queryParams}";
+                httpRequest.Headers.Add("Authorization", $"Api-Key {_config.ApiKey}");
 
-                var content = new ByteArrayContent(request.AudioData);
-                content.Headers.ContentType = new MediaTypeHeaderValue("audio/ogg");
+                _logger.LogDebug("Sending STT request to YandexSpeechKit");
 
-                var response = await _httpClient.PostAsync(url, content, cancellationToken);
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("SpeechKit STT error: {StatusCode} - {Error}",
-                        response.StatusCode, errorContent);
+                    _logger.LogError(
+                        "YandexSpeechKit STT error: {StatusCode} - {Content}",
+                        response.StatusCode,
+                        responseText);
 
                     return new SpeechToTextResponse
                     {
                         Success = false,
-                        ErrorMessage = $"STT Error: {response.StatusCode}"
+                        ErrorMessage = $"STT API error: {response.StatusCode} - {responseText}"
                     };
                 }
 
-                var resultJson = await response.Content.ReadAsStringAsync(cancellationToken);
+                var result = JsonSerializer.Deserialize<YandexSttResponse>(
+                    responseText,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                // Yandex возвращает JSON с полем "result"
-                var result = System.Text.Json.JsonSerializer.Deserialize<
-                    System.Collections.Generic.Dictionary<string, string>>(resultJson);
-
-                if (result == null || !result.ContainsKey("result"))
-                {
-                    return new SpeechToTextResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "No transcription result"
-                    };
-                }
+                _logger.LogInformation("STT response received: {Text}", result?.Result);
 
                 return new SpeechToTextResponse
                 {
-                    Text = result["result"],
+                    Text = result?.Result ?? string.Empty,
                     Success = true,
-                    Confidence = 0.9 // Yandex не всегда возвращает confidence
+                    Confidence = 0.95, // Yandex не возвращает confidence, ставим высокое
+                    Pronunciation = request.AnalyzePronunciation
+                        ? new PronunciationAnalysis { Score = 85 } // TODO: реальный анализ
+                        : null
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error transcribing audio");
+
                 return new SpeechToTextResponse
                 {
                     Success = false,
@@ -114,37 +105,47 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
         {
             try
             {
-                _logger.LogInformation("Generating speech using Yandex SpeechKit");
+                var parameters = new Dictionary<string, string>
+                {
+                    ["text"] = request.Text,
+                    ["lang"] = _config.Language,
+                    ["voice"] = request.Voice ?? _config.Voice,
+                    ["speed"] = request.Speed.ToString(CultureInfo.InvariantCulture),
+                    ["format"] = "oggopus",
+                    ["folderId"] = _config.FolderId
+                };
 
-                var queryParams = HttpUtility.ParseQueryString(string.Empty);
-                queryParams["text"] = request.Text;
-                queryParams["lang"] = ExtractLanguage(request.Voice);
-                queryParams["voice"] = ExtractVoiceName(request.Voice);
-                queryParams["speed"] = request.Speed.ToString("F1");
-                queryParams["format"] = "oggopus"; // Telegram compatible
-                queryParams["folderId"] = _config.FolderId;
+                var content = new FormUrlEncodedContent(parameters);
 
-                var url = $"{_config.TtsUrl}?{queryParams}";
+                var httpRequest = new HttpRequestMessage(HttpMethod.Post, _config.TtsUrl)
+                {
+                    Content = content
+                };
 
-                var response = await _httpClient.PostAsync(
-                    url,
-                    new StringContent(string.Empty),
-                    cancellationToken);
+                httpRequest.Headers.Add("Authorization", $"Api-Key {_config.ApiKey}");
+
+                _logger.LogDebug("Sending TTS request to YandexSpeechKit");
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("SpeechKit TTS error: {StatusCode} - {Error}",
-                        response.StatusCode, errorContent);
+                    var errorText = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError(
+                        "YandexSpeechKit TTS error: {StatusCode} - {Content}",
+                        response.StatusCode,
+                        errorText);
 
                     return new TextToSpeechResponse
                     {
                         Success = false,
-                        ErrorMessage = $"TTS Error: {response.StatusCode}"
+                        ErrorMessage = $"TTS API error: {response.StatusCode} - {errorText}"
                     };
                 }
 
                 var audioData = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+
+                _logger.LogInformation("TTS response received: {Size} bytes", audioData.Length);
 
                 return new TextToSpeechResponse
                 {
@@ -156,6 +157,7 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error generating speech");
+
                 return new TextToSpeechResponse
                 {
                     Success = false,
@@ -164,24 +166,32 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
             }
         }
 
-        private string ExtractLanguage(string voice)
+        public async Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default)
         {
-            // Маппинг голосов на языки
-            // jane, john, omazh - английские голоса
-            // alena, filipp - русские голоса
-            return voice.ToLower() switch
+            try
             {
-                "jane" or "john" or "omazh" => "en-US",
-                "alena" or "filipp" => "ru-RU",
-                _ => "en-US"
-            };
+                // Проверяем TTS минимальным запросом
+                var testRequest = new TextToSpeechRequest
+                {
+                    Text = "Test",
+                    Voice = _config.Voice,
+                    Speed = 1.0
+                };
+
+                var response = await GenerateSpeechAsync(testRequest, cancellationToken);
+
+                return response.Success;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "YandexSpeechKit availability check failed");
+                return false;
+            }
         }
 
-        private string ExtractVoiceName(string voice)
+        private class YandexSttResponse
         {
-            // Если передан формат "en-US-jane", извлекаем "jane"
-            var parts = voice.Split('-');
-            return parts.Length > 2 ? parts[2] : voice;
+            public string? Result { get; set; }
         }
     }
 }

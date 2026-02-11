@@ -12,7 +12,6 @@ using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
 {
-
     /// <summary>
     /// Провайдер для работы с YandexGPT API
     /// </summary>
@@ -25,23 +24,13 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
         public string ProviderName => "YandexGPT";
 
         public YandexGPTProvider(
-            HttpClient httpClient,
+            IHttpClientFactory httpClientFactory,
             IOptions<AIConfiguration> aiConfig,
             ILogger<YandexGPTProvider> logger)
         {
-            _httpClient = httpClient;
+            _httpClient = httpClientFactory.CreateClient("yandex_gpt");
             _config = aiConfig.Value.YandexGPT;
             _logger = logger;
-
-            ConfigureHttpClient();
-        }
-
-        private void ConfigureHttpClient()
-        {
-            _httpClient.BaseAddress = new Uri(_config.BaseUrl);
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Api-Key", _config.ApiKey);
-            _httpClient.DefaultRequestHeaders.Add("x-folder-id", _config.FolderId);
         }
 
         public async Task<AIResponse> GenerateResponseAsync(
@@ -50,36 +39,82 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
         {
             try
             {
-                _logger.LogInformation("Generating response using YandexGPT");
+                var modelUri = $"gpt://{_config.FolderId}/{_config.Model}";
 
-                var yandexRequest = MapToYandexRequest(request);
+                var messages = new List<YandexMessage>();
+
+                // Системный промпт
+                if (!string.IsNullOrEmpty(request.SystemPrompt))
+                {
+                    messages.Add(new YandexMessage
+                    {
+                        Role = "system",
+                        Text = request.SystemPrompt
+                    });
+                }
+
+                // Контекст
+                foreach (var msg in request.Messages)
+                {
+                    messages.Add(new YandexMessage
+                    {
+                        Role = msg.Role,
+                        Text = msg.Content
+                    });
+                }
+
+                var yandexRequest = new YandexGPTRequest
+                {
+                    ModelUri = modelUri,
+                    CompletionOptions = new CompletionOptions
+                    {
+                        Stream = false,
+                        Temperature = request.Temperature,
+                        MaxTokens = request.MaxTokens
+                    },
+                    Messages = messages
+                };
+
                 var jsonContent = JsonSerializer.Serialize(yandexRequest);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync(
-                    "/completion",
-                    content,
-                    cancellationToken);
+                var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_config.BaseUrl}/completion")
+                {
+                    Content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
+                };
+
+                // ✅ Используем формат Api-Key
+                httpRequest.Headers.Add("Authorization", $"Api-Key {_config.ApiKey}");
+                httpRequest.Headers.Add("x-folder-id", _config.FolderId);
+
+                _logger.LogDebug(
+                    "Sending request to YandexGPT: Model={Model}, Messages={Count}",
+                    _config.Model,
+                    messages.Count);
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("YandexGPT API error: {StatusCode} - {Error}",
-                        response.StatusCode, errorContent);
+                    _logger.LogError(
+                        "YandexGPT API error: {StatusCode} - {Content}",
+                        response.StatusCode,
+                        responseContent);
 
                     return new AIResponse
                     {
                         Success = false,
-                        ErrorMessage = $"API Error: {response.StatusCode}"
+                        ErrorMessage = $"API error: {response.StatusCode} - {responseContent}"
                     };
                 }
 
-                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-                var yandexResponse = JsonSerializer.Deserialize<YandexGPTResponse>(responseJson);
+                var yandexResponse = JsonSerializer.Deserialize<YandexGPTResponse>(responseContent);
 
                 if (yandexResponse?.Result?.Alternatives == null ||
                     yandexResponse.Result.Alternatives.Count == 0)
                 {
+                    _logger.LogError("No response from YandexGPT: {Content}", responseContent);
+
                     return new AIResponse
                     {
                         Success = false,
@@ -88,18 +123,24 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
                 }
 
                 var alternative = yandexResponse.Result.Alternatives[0];
+                var tokensUsed = yandexResponse.Result.Usage?.TotalTokensInt ?? 0;
+
+                _logger.LogInformation(
+                    "YandexGPT response received: Tokens={Tokens}",
+                    tokensUsed);
 
                 return new AIResponse
                 {
                     Content = alternative.Message.Text,
-                    TokensUsed = yandexResponse.Result.Usage.TotalTokens,
-                    Model = yandexResponse.Result.ModelVersion,
+                    TokensUsed = tokensUsed,
+                    Model = _config.Model,
                     Success = true
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error calling YandexGPT API");
+
                 return new AIResponse
                 {
                     Success = false,
@@ -112,61 +153,26 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT
         {
             try
             {
-                // Простой запрос для проверки доступности
+                // Проверяем доступность API простым запросом
                 var testRequest = new AIRequest
                 {
-                    SystemPrompt = "You are a helpful assistant.",
+                    SystemPrompt = "Test",
                     Messages = new List<ChatMessage>
-                {
-                    new() { Role = "user", Content = "Hi" }
-                },
+                    {
+                        new ChatMessage { Role = "user", Content = "Hi" }
+                    },
                     MaxTokens = 10
                 };
 
                 var response = await GenerateResponseAsync(testRequest, cancellationToken);
+
                 return response.Success;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "YandexGPT availability check failed");
                 return false;
             }
-        }
-
-        private YandexGPTRequest MapToYandexRequest(AIRequest request)
-        {
-            var messages = new List<YandexMessage>();
-
-            // Добавляем системный промпт
-            if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
-            {
-                messages.Add(new YandexMessage
-                {
-                    Role = "system",
-                    Text = request.SystemPrompt
-                });
-            }
-
-            // Добавляем историю сообщений
-            foreach (var message in request.Messages)
-            {
-                messages.Add(new YandexMessage
-                {
-                    Role = message.Role,
-                    Text = message.Content
-                });
-            }
-
-            return new YandexGPTRequest
-            {
-                ModelUri = $"gpt://{_config.FolderId}/{_config.Model}",
-                CompletionOptions = new CompletionOptions
-                {
-                    Stream = false,
-                    Temperature = request.Temperature,
-                    MaxTokens = request.MaxTokens
-                },
-                Messages = messages
-            };
         }
     }
 }

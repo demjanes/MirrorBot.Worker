@@ -49,8 +49,8 @@ namespace MirrorBot.Worker.Data.Repositories.Interfaces
         /// <summary>
         /// Upsert пользователя при взаимодействии
         /// </summary>
-        Task<User?> UpsertSeenAsync(
-            UserSeenEvent e,
+       Task<(User User, bool IsNewUser)> UpsertSeenAsync(
+             UserSeenEvent e,
             CancellationToken cancellationToken = default);
 
         /// <summary>

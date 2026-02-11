@@ -59,15 +59,15 @@ namespace MirrorBot.Worker.Services.English
         {
             try
             {
-                // Проверка подписки
-                if (!await _subscriptionRepo.CanSendMessageAsync(userId, cancellationToken))
-                {
-                    return new EnglishTutorResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Message limit reached. Please upgrade your subscription."
-                    };
-                }
+                //// Проверка подписки
+                //if (!await _subscriptionRepo.CanSendMessageAsync(userId, cancellationToken))
+                //{
+                //    return new EnglishTutorResponse
+                //    {
+                //        Success = false,
+                //        ErrorMessage = "Message limit reached. Please upgrade your subscription."
+                //    };
+                //}
 
                 // Получить диалог
                 var conversation = await _conversationManager.GetOrCreateConversationAsync(

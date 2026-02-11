@@ -50,5 +50,27 @@ namespace MirrorBot.Worker.Services.AI.Providers.OpenAI
                 ErrorMessage = "OpenAI TTS is not yet implemented. Please use YandexSpeechKit."
             });
         }
+
+        public async Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Проверка доступности через минимальный TTS запрос
+                var testRequest = new TextToSpeechRequest
+                {
+                    Text = "Test",
+                    Voice = _config.Voice
+                };
+
+                var response = await GenerateSpeechAsync(testRequest, cancellationToken);
+
+                return response.Success;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OpenAI Speech availability check failed");
+                return false;
+            }
+        }
     }
 }

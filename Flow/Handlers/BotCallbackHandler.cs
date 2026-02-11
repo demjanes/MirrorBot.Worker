@@ -485,7 +485,10 @@ namespace MirrorBot.Worker.Flow.Handlers
                 $"/{entity.TgCallbackQuery.Data}\n" +
                 $"@{entity.BotContext.BotUsername}");
 
-            entity.User = await _users.UpsertSeenAsync(seen, ct);
+
+            var (user, isNewUser) = await _users.UpsertSeenAsync(seen, ct);
+
+            entity.User = user;
         }
     }
 }

@@ -39,13 +39,24 @@ namespace MirrorBot.Worker.Services.AI.Providers.YandexGPT.Models
 
     public class YandexUsage
     {
+        // ✅ ИСПРАВЛЕНО: Яндекс возвращает токены как строки!
         [JsonPropertyName("inputTextTokens")]
-        public int InputTextTokens { get; set; }
+        public string InputTextTokens { get; set; } = "0";
 
         [JsonPropertyName("completionTokens")]
-        public int CompletionTokens { get; set; }
+        public string CompletionTokens { get; set; } = "0";
 
         [JsonPropertyName("totalTokens")]
-        public int TotalTokens { get; set; }
+        public string TotalTokens { get; set; } = "0";
+
+        // Вспомогательные свойства для преобразования в int
+        [JsonIgnore]
+        public int InputTextTokensInt => int.TryParse(InputTextTokens, out var val) ? val : 0;
+
+        [JsonIgnore]
+        public int CompletionTokensInt => int.TryParse(CompletionTokens, out var val) ? val : 0;
+
+        [JsonIgnore]
+        public int TotalTokensInt => int.TryParse(TotalTokens, out var val) ? val : 0;
     }
 }

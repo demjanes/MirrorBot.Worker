@@ -1,15 +1,10 @@
 ﻿using MirrorBot.Worker.Data.Models.Core;
 using MongoDB.Bson.Serialization.Attributes;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Data.Models.English
 {
     /// <summary>
-    /// Диалог с английским тьютором
+    /// Диалог с английским тьютором (единый для всех ботов пользователя)
     /// </summary>
     public sealed class Conversation : BaseEntity
     {
@@ -20,10 +15,10 @@ namespace MirrorBot.Worker.Data.Models.English
         public long UserId { get; set; }
 
         /// <summary>
-        /// ID бота (для системы зеркал)
+        /// ID последнего бота, в котором пользователь писал
         /// </summary>
-        [BsonElement("botId")]
-        public string BotId { get; set; } = string.Empty;
+        [BsonElement("lastBotId")]
+        public string LastBotId { get; set; } = string.Empty;
 
         /// <summary>
         /// Режим диалога (Casual, Business, Psychologist, Teacher)
@@ -32,7 +27,7 @@ namespace MirrorBot.Worker.Data.Models.English
         public string Mode { get; set; } = "Casual";
 
         /// <summary>
-        /// Сообщения в диалоге
+        /// Сообщения в диалоге (глобальные для всех ботов пользователя)
         /// </summary>
         [BsonElement("messages")]
         public List<EnglishMessage> Messages { get; set; } = new();
@@ -56,4 +51,5 @@ namespace MirrorBot.Worker.Data.Models.English
         [BsonElement("totalTokensUsed")]
         public int TotalTokensUsed { get; set; } = 0;
     }
+
 }

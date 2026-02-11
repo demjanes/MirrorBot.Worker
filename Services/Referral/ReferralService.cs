@@ -62,39 +62,16 @@ namespace MirrorBot.Worker.Services.Referral
                     return;
                 }
 
-                var user = await _usersRepo.GetByTelegramIdAsync(userId, cancellationToken);
-
-                if (user == null)
-                {
-                    _logger.LogWarning(
-                        "RegisterReferralAsync: пользователь {UserId} не найден",
-                        userId);
-                    return;
-                }
-
-                if (user.ReferrerOwnerTgUserId != null && user.ReferrerOwnerTgUserId != referrerOwnerTgUserId.Value)
-                {
-                    _logger.LogDebug(
-                        "User {UserId} already has a different referrer {ExistingReferrerId}",
-                        userId,
-                        user.ReferrerOwnerTgUserId);
-                    return;
-                }
-
-                if (user.ReferrerOwnerTgUserId == null)
-                {
-                    await _usersRepo.SetReferralIfEmptyAsync(
-                        userId,
-                        referrerOwnerTgUserId.Value,
-                        referrerMirrorBotId ?? ObjectId.Empty,
-                        cancellationToken);
-                }
-
+                // ✅ УПРОЩЕНО: Если метод вызван, значит это новый пользователь с рефералом
+                // Создаем или получаем статистику
                 await _statsRepo.GetOrCreateAsync(referrerOwnerTgUserId.Value, cancellationToken);
+
+                // Увеличиваем счетчик рефералов
                 await _statsRepo.IncrementTotalReferralsAsync(
                     referrerOwnerTgUserId.Value,
                     cancellationToken);
 
+                // Отправляем уведомление
                 await _notificationService.NotifyNewReferralAsync(
                     referrerOwnerTgUserId.Value,
                     userId,
@@ -102,7 +79,7 @@ namespace MirrorBot.Worker.Services.Referral
                     cancellationToken);
 
                 _logger.LogInformation(
-                    "Registered referral: User {UserId} -> Owner {OwnerId}, Mirror {MirrorId}",
+                    "Registered NEW referral: User {UserId} -> Owner {OwnerId}, Mirror {MirrorId}",
                     userId,
                     referrerOwnerTgUserId,
                     referrerMirrorBotId);
@@ -115,6 +92,7 @@ namespace MirrorBot.Worker.Services.Referral
                     userId);
             }
         }
+
 
         public async Task OnPaymentSucceededAsync(
             long payerTgUserId,

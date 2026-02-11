@@ -5,7 +5,7 @@ using MirrorBot.Worker.Services.AI.Interfaces;
 namespace MirrorBot.Worker.Services.English
 {
     /// <summary>
-    /// Менеджер для управления контекстом диалога
+    /// Менеджер для управления контекстом диалога (единый для всех ботов)
     /// </summary>
     public class ConversationManager
     {
@@ -22,7 +22,7 @@ namespace MirrorBot.Worker.Services.English
         }
 
         /// <summary>
-        /// Получить или создать активный диалог
+        /// Получить или создать единый диалог пользователя
         /// </summary>
         public async Task<Conversation> GetOrCreateConversationAsync(
             long userId,
@@ -30,22 +30,28 @@ namespace MirrorBot.Worker.Services.English
             string mode = "Casual",
             CancellationToken cancellationToken = default)
         {
-            var conversation = await _conversationRepo.GetActiveConversationAsync(
-                userId, botId, cancellationToken);
+            var conversation = await _conversationRepo.GetByUserAsync(userId, cancellationToken);
 
             if (conversation != null)
+            {
+                // Обновляем последний бот
+                conversation.LastBotId = botId;
                 return conversation;
+            }
 
+            // Создаём новый единый контекст
             conversation = new Conversation
             {
                 UserId = userId,
-                BotId = botId,
+                LastBotId = botId,
                 Mode = mode,
                 IsActive = true,
-                Messages = new List<EnglishMessage>()
+                Messages = new List<EnglishMessage>(),
+                CreatedAtUtc = DateTime.UtcNow,
+                LastActivityUtc = DateTime.UtcNow
             };
 
-            return await _conversationRepo.CreateAsync(conversation, cancellationToken);
+            return await _conversationRepo.CreateOrUpdateAsync(conversation, cancellationToken);
         }
 
         /// <summary>
@@ -55,17 +61,25 @@ namespace MirrorBot.Worker.Services.English
             Conversation conversation,
             CancellationToken cancellationToken = default)
         {
-            var recentMessages = await _conversationRepo.GetRecentMessagesAsync(
-                conversation.Id,
-                MaxContextMessages,
-                cancellationToken);
+            // Берём последние N сообщений из единого контекста
+            var recentMessages = conversation.Messages
+                .OrderByDescending(m => m.TimestampUtc)
+                .Take(MaxContextMessages)
+                .OrderBy(m => m.TimestampUtc)
+                .Select(m => new ChatMessage
+                {
+                    Role = m.Role,
+                    Content = m.Content,
+                    Timestamp = m.TimestampUtc
+                })
+                .ToList();
 
-            return recentMessages.Select(m => new ChatMessage
-            {
-                Role = m.Role,
-                Content = m.Content,
-                Timestamp = m.TimestampUtc
-            }).ToList();
+            _logger.LogDebug(
+                "Retrieved {Count} messages from unified context for user {UserId}",
+                recentMessages.Count,
+                conversation.UserId);
+
+            return recentMessages;
         }
 
         /// <summary>
@@ -85,10 +99,16 @@ namespace MirrorBot.Worker.Services.English
                 TimestampUtc = DateTime.UtcNow
             };
 
-            return await _conversationRepo.AddMessageAsync(
-                conversation.Id,
-                message,
-                cancellationToken);
+            conversation.Messages.Add(message);
+            conversation.LastActivityUtc = DateTime.UtcNow;
+
+            await _conversationRepo.CreateOrUpdateAsync(conversation, cancellationToken);
+
+            _logger.LogDebug(
+                "Added user message to unified context for user {UserId}",
+                conversation.UserId);
+
+            return true;
         }
 
         /// <summary>
@@ -97,7 +117,7 @@ namespace MirrorBot.Worker.Services.English
         public async Task<bool> AddAssistantMessageAsync(
             Conversation conversation,
             string content,
-            List<GrammarCorrection> corrections, // ✅ Из Interfaces - нет конфликта!
+            List<GrammarCorrection> corrections,
             int tokensUsed,
             int? pronunciationScore = null,
             CancellationToken cancellationToken = default)
@@ -106,7 +126,6 @@ namespace MirrorBot.Worker.Services.English
             {
                 Role = "assistant",
                 Content = content,
-                // ✅ Маппим в MessageCorrection (модель БД)
                 Corrections = corrections.Select(c => new MessageCorrection
                 {
                     Original = c.Original,
@@ -119,10 +138,18 @@ namespace MirrorBot.Worker.Services.English
                 PronunciationScore = pronunciationScore
             };
 
-            return await _conversationRepo.AddMessageAsync(
-                conversation.Id,
-                message,
-                cancellationToken);
+            conversation.Messages.Add(message);
+            conversation.TotalTokensUsed += tokensUsed;
+            conversation.LastActivityUtc = DateTime.UtcNow;
+
+            await _conversationRepo.CreateOrUpdateAsync(conversation, cancellationToken);
+
+            _logger.LogDebug(
+                "Added assistant message to unified context for user {UserId}, tokens: {Tokens}",
+                conversation.UserId,
+                tokensUsed);
+
+            return true;
         }
 
         /// <summary>
@@ -133,10 +160,39 @@ namespace MirrorBot.Worker.Services.English
             string newMode,
             CancellationToken cancellationToken = default)
         {
-            return await _conversationRepo.UpdateModeAsync(
-                conversation.Id,
+            conversation.Mode = newMode;
+            conversation.LastActivityUtc = DateTime.UtcNow;
+
+            await _conversationRepo.CreateOrUpdateAsync(conversation, cancellationToken);
+
+            _logger.LogInformation(
+                "Changed mode to {Mode} for user {UserId}",
                 newMode,
-                cancellationToken);
+                conversation.UserId);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Очистить контекст (начать новый диалог)
+        /// </summary>
+        public async Task<bool> ClearContextAsync(
+            long userId,
+            CancellationToken cancellationToken = default)
+        {
+            var conversation = await _conversationRepo.GetByUserAsync(userId, cancellationToken);
+
+            if (conversation != null)
+            {
+                conversation.Messages.Clear();
+                conversation.LastActivityUtc = DateTime.UtcNow;
+                await _conversationRepo.CreateOrUpdateAsync(conversation, cancellationToken);
+
+                _logger.LogInformation("Cleared context for user {UserId}", userId);
+                return true;
+            }
+
+            return false;
         }
     }
 }

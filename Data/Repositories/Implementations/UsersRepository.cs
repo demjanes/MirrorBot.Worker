@@ -153,7 +153,7 @@ namespace MirrorBot.Worker.Data.Repositories.Implementations
         /// <summary>
         /// Upsert пользователя при взаимодействии
         /// </summary>
-        public async Task<User?> UpsertSeenAsync(
+        public async Task<(User User, bool IsNewUser)> UpsertSeenAsync(
             UserSeenEvent e,
             CancellationToken cancellationToken = default)
         {
@@ -195,11 +195,16 @@ namespace MirrorBot.Worker.Data.Repositories.Implementations
                 ReturnDocument = ReturnDocument.After
             };
 
-            return await _collection.FindOneAndUpdateAsync(
+            var user = await _collection.FindOneAndUpdateAsync(
                 filter,
                 update,
                 options,
                 cancellationToken);
+
+            // ✅ КЛЮЧЕВАЯ ЛОГИКА: Если CreatedAtUtc == SeenAtUtc (с погрешностью 1 сек), значит пользователь только что создан
+            var isNewUser = Math.Abs((user.CreatedAtUtc - e.SeenAtUtc).TotalSeconds) < 1;
+
+            return (user, isNewUser);
         }
 
         /// <summary>
