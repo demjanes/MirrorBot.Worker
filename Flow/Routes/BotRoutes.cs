@@ -27,6 +27,10 @@ namespace MirrorBot.Worker.Flow.Routes
             public const string RefTxt_Ru = "💰 Реферальная программа";
             public const string RefTxt_En = "💰 Referral Program";
 
+            public const string Subscription = "/sub";
+            public const string SubscriptionTxt_Ru = "💎 Подписка";
+            public const string SubscriptionTxt_En = "💎 Subscription";
+
             public const string AddBot = "/addbot";
         }
 
@@ -124,6 +128,39 @@ namespace MirrorBot.Worker.Flow.Routes
                 // Запрос на вывод средств
                 public static readonly string PayoutAction = "payout";
                 public static readonly string Payout = CbCodec.Pack(_section, PayoutAction);
+            }
+
+            // ============ Секция подписок ============
+            public static class Subscription
+            {
+                public const string _section = "sub";
+
+                // Главное меню подписок
+                public static readonly string MainAction = "main";
+                public static readonly string Main = CbCodec.Pack(_section, MainAction);
+
+                // Просмотр текущей подписки
+                public static readonly string ViewAction = "view";
+                public static readonly string View = CbCodec.Pack(_section, ViewAction);
+
+                // Выбор Premium тарифа
+                public static readonly string ChoosePlanAction = "choose";
+                public static readonly string ChoosePlan = CbCodec.Pack(_section, ChoosePlanAction);
+
+                // Покупка конкретного плана
+                public static readonly string BuyAction = "buy";
+                public static string Buy(string planId) => CbCodec.Pack(_section, BuyAction, planId);
+
+                // Отмена подписки
+                public static readonly string CancelAction = "cancel";
+                public static readonly string Cancel = CbCodec.Pack(_section, CancelAction);
+
+                // Подтверждение отмены
+                public static readonly string CancelYesAction = "cancel_yes";
+                public static readonly string CancelYes = CbCodec.Pack(_section, CancelYesAction);
+
+                public static readonly string CancelNoAction = "cancel_no";
+                public static readonly string CancelNo = CbCodec.Pack(_section, CancelNoAction);
             }
         }
     }

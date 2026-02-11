@@ -14,8 +14,7 @@ namespace MirrorBot.Worker.Bot
 
         private readonly ILogger<BotManager> _log;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly IMirrorBotsRepository _repo;
-        private readonly BotFlowService _flow;
+        private readonly IServiceScopeFactory _scopeFactory; // ✅ ДОБАВЛЕНО
         private readonly IOptions<BotConfiguration> _mainOpt;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ITokenEncryptionService _tokenEncryption;
@@ -23,35 +22,36 @@ namespace MirrorBot.Worker.Bot
         private readonly ConcurrentDictionary<string, BotRunner> _runners = new();
 
         public BotManager(
-     ILoggerFactory loggerFactory,
-     ILogger<BotManager> log,
-     IMirrorBotsRepository repo,
-     BotFlowService flow,
-     IOptions<BotConfiguration> mainOpt,
-     IHttpClientFactory httpClientFactory,
-     ITokenEncryptionService tokenEncryption
-     )
+            ILoggerFactory loggerFactory,
+            ILogger<BotManager> log,
+            IServiceScopeFactory scopeFactory, // ✅ ДОБАВЛЕНО
+            IOptions<BotConfiguration> mainOpt,
+            IHttpClientFactory httpClientFactory,
+            ITokenEncryptionService tokenEncryption)
         {
             _loggerFactory = loggerFactory;
             _log = log;
-            _repo = repo;
-            _flow = flow;
+            _scopeFactory = scopeFactory; // ✅ ДОБАВЛЕНО
             _mainOpt = mainOpt;
             _httpClientFactory = httpClientFactory;
             _tokenEncryption = tokenEncryption;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {            
+        {
             try
-            {         
+            {
                 StartMainBot();
-             
+
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     try
                     {
-                        var enabled = await _repo.GetEnabledAsync(stoppingToken);
+                        // ✅ ИЗМЕНЕНО: Создаем scope для доступа к репозиторию
+                        using var scope = _scopeFactory.CreateScope();
+                        var repo = scope.ServiceProvider.GetRequiredService<IMirrorBotsRepository>();
+
+                        var enabled = await repo.GetEnabledAsync(stoppingToken);
 
                         var enabledKeys = new HashSet<string>(enabled.Select(x => x.Id.ToString()));
 
@@ -93,8 +93,6 @@ namespace MirrorBot.Worker.Bot
             }
         }
 
-
-
         public override Task StopAsync(CancellationToken cancellationToken)
         {
             foreach (var kv in _runners)
@@ -121,11 +119,8 @@ namespace MirrorBot.Worker.Bot
             TryStartMirror(MainKey, ctx);
         }
 
-
-
         private void TryStartMirror(string key, BotContext ctx)
         {
-            // дедуп: TryAdd -> только победитель стартует
             var http = _httpClientFactory.CreateClient("telegram");
 
             string plainToken;
@@ -136,7 +131,7 @@ namespace MirrorBot.Worker.Bot
                 // Это зеркало с зашифрованным токеном
                 try
                 {
-                    plainToken = _tokenEncryption.Decrypt(ctx.Token);                    
+                    plainToken = _tokenEncryption.Decrypt(ctx.Token);
                 }
                 catch (Exception ex)
                 {
@@ -152,7 +147,11 @@ namespace MirrorBot.Worker.Bot
 
             var client = new TelegramBotClient(new TelegramBotClientOptions(plainToken), http);
 
-            var handler = new BotUpdateHandler(ctx, _flow, _loggerFactory.CreateLogger<BotUpdateHandler>());
+            // ✅ ИЗМЕНЕНО: Передаем IServiceScopeFactory вместо BotFlowService
+            var handler = new BotUpdateHandler(
+                ctx,
+                _scopeFactory,
+                _loggerFactory.CreateLogger<BotUpdateHandler>());
 
             var runner = new BotRunner(ctx, client, handler);
 
@@ -163,7 +162,7 @@ namespace MirrorBot.Worker.Bot
 
             try
             {
-                runner.Start(); // ← ЗДЕСЬ СКОРЕЕ ВСЕГО ЗАВИСАЕТ
+                runner.Start();
                 _log.LogInformation("Started bot runner {BotKey} @{Username}", key, ctx.BotUsername);
             }
             catch (Exception ex)
@@ -174,8 +173,6 @@ namespace MirrorBot.Worker.Bot
                 throw;
             }
         }
-
-
 
         /// <summary>
         /// Проверяет, похож ли токен на зашифрованный (Base64 с бинарными данными)
@@ -216,7 +213,7 @@ namespace MirrorBot.Worker.Bot
             if (!_runners.TryGetValue(botKey, out var runner))
                 return false;
 
-            client = runner.Client; // см. правку BotRunner ниже
+            client = runner.Client;
             return true;
         }
     }

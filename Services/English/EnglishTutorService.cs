@@ -3,6 +3,7 @@ using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Services.AI.Implementations;
 using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.English.Prompts;
+using MirrorBot.Worker.Services.Subscr;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -20,7 +21,7 @@ namespace MirrorBot.Worker.Services.English
         private readonly VocabularyExtractor _vocabularyExtractor;
         private readonly IVocabularyRepository _vocabularyRepo;
         private readonly IUserProgressRepository _progressRepo;
-        private readonly ISubscriptionRepository _subscriptionRepo;
+        private readonly ISubscriptionService _subscriptionService; // ✅ ИЗМЕНЕНО
         private readonly IUserSettingsRepository _settingsRepo;
         private readonly ILogger<EnglishTutorService> _logger;
         private readonly ICacheService _cacheService;
@@ -33,7 +34,7 @@ namespace MirrorBot.Worker.Services.English
             VocabularyExtractor vocabularyExtractor,
             IVocabularyRepository vocabularyRepo,
             IUserProgressRepository progressRepo,
-            ISubscriptionRepository subscriptionRepo,
+            ISubscriptionService subscriptionService, // ✅ ИЗМЕНЕНО
             IUserSettingsRepository settingsRepo,
             ICacheService cacheService,
             ILogger<EnglishTutorService> logger)
@@ -45,29 +46,34 @@ namespace MirrorBot.Worker.Services.English
             _vocabularyExtractor = vocabularyExtractor;
             _vocabularyRepo = vocabularyRepo;
             _progressRepo = progressRepo;
-            _subscriptionRepo = subscriptionRepo;
+            _subscriptionService = subscriptionService; // ✅ ИЗМЕНЕНО
             _settingsRepo = settingsRepo;
             _cacheService = cacheService;
             _logger = logger;
         }
 
         public async Task<EnglishTutorResponse> ProcessTextMessageAsync(
-            long userId,
-            string botId,
-            string userMessage,
-            CancellationToken cancellationToken = default)
+        long userId,
+        string botId,
+        string userMessage,
+        CancellationToken cancellationToken = default)
         {
             try
             {
-                //// Проверка подписки
-                //if (!await _subscriptionRepo.CanSendMessageAsync(userId, cancellationToken))
-                //{
-                //    return new EnglishTutorResponse
-                //    {
-                //        Success = false,
-                //        ErrorMessage = "Message limit reached. Please upgrade your subscription."
-                //    };
-                //}
+                // ✅ ИЗМЕНЕНО: Проверка подписки через новый сервис
+                var (canSend, errorMessage) = await _subscriptionService.CanSendMessageAsync(
+                    userId,
+                    isVoice: false,
+                    cancellationToken);
+
+                if (!canSend)
+                {
+                    return new EnglishTutorResponse
+                    {
+                        Success = false,
+                        ErrorMessage = errorMessage
+                    };
+                }
 
                 // Получить диалог
                 var conversation = await _conversationManager.GetOrCreateConversationAsync(
@@ -196,8 +202,12 @@ namespace MirrorBot.Worker.Services.English
                     await AddWordsToVocabularyAsync(userId, newWords, cancellationToken);
                 }
 
-                // Использовать сообщение из лимита
-                await _subscriptionRepo.UseMessageAsync(userId, cancellationToken);
+                // ✅ ИЗМЕНЕНО: Использовать сообщение через новый сервис
+                await _subscriptionService.UseMessageAsync(
+                    userId,
+                    isVoice: false,
+                    tokensUsed: tokensUsed,
+                    cancellationToken);
 
                 // Настройки для голосового ответа
                 byte[]? voiceResponse = null;
@@ -210,7 +220,6 @@ namespace MirrorBot.Worker.Services.English
                     {
                         // Используем кэшированный FileId (не генерируем заново)
                         newVoiceFileId = cachedVoiceFileId;
-                        // voiceResponse остается null, так как мы отправим по FileId
                     }
                     else
                     {
@@ -229,7 +238,6 @@ namespace MirrorBot.Worker.Services.English
                         if (ttsResponse.Success)
                         {
                             voiceResponse = ttsResponse.AudioData;
-                            // newVoiceFileId будет установлен после отправки в Telegram
                         }
                     }
                 }
@@ -256,21 +264,27 @@ namespace MirrorBot.Worker.Services.English
                 };
             }
         }
+
         public async Task<EnglishTutorResponse> ProcessVoiceMessageAsync(
-      long userId,
-      string botId,
-      byte[] audioData,
-      CancellationToken cancellationToken = default)
+            long userId,
+            string botId,
+            byte[] audioData,
+            CancellationToken cancellationToken = default)
         {
             try
             {
-                // Проверка подписки
-                if (!await _subscriptionRepo.CanSendMessageAsync(userId, cancellationToken))
+                // ✅ ИЗМЕНЕНО: Проверка подписки через новый сервис
+                var (canSend, errorMessage) = await _subscriptionService.CanSendMessageAsync(
+                    userId,
+                    isVoice: true,
+                    cancellationToken);
+
+                if (!canSend)
                 {
                     return new EnglishTutorResponse
                     {
                         Success = false,
-                        ErrorMessage = "Message limit reached. Please upgrade your subscription."
+                        ErrorMessage = errorMessage
                     };
                 }
 
@@ -326,14 +340,12 @@ namespace MirrorBot.Worker.Services.English
                         TextResponse = cached.ResponseText,
                         CachedVoiceFileId = cached.VoiceFileId,
                         CacheKey = cached.CacheKey,
-                        // Восстанавливаем анализ произношения из кэша
                         PronunciationFeedback = CacheService.ConvertFromCachedPronunciation(
                             cached.PronunciationAnalysis)
-                            ?? sttResponse.Pronunciation, // fallback на текущий анализ
+                            ?? sttResponse.Pronunciation,
                         Success = true
                     };
 
-                    // Пересчитываем corrections и vocabulary (быстрые операции)
                     var corrections = await _grammarAnalyzer.AnalyzeAsync(
                         sttResponse.Text,
                         cancellationToken);
@@ -360,12 +372,10 @@ namespace MirrorBot.Worker.Services.English
                         return textResponse;
                     }
 
-                    // Добавить анализ произношения
                     if (sttResponse.Pronunciation != null)
                     {
                         textResponse.PronunciationFeedback = sttResponse.Pronunciation;
 
-                        // Сохранить в кэш с произношением
                         await _cacheService.SaveWithPronunciationAsync(
                             sttResponse.Text,
                             conversation.Mode,
@@ -373,11 +383,10 @@ namespace MirrorBot.Worker.Services.English
                             _aiProvider.ProviderName,
                             textResponse.TextResponse,
                             textResponse.CachedVoiceFileId,
-                            0, // tokensUsed уже учтен в ProcessTextMessageAsync
+                            0,
                             sttResponse.Pronunciation,
                             cancellationToken);
 
-                        // Обновить прогресс произношения
                         await _progressRepo.UpdatePronunciationScoreAsync(
                             userId,
                             sttResponse.Pronunciation.Score,
@@ -385,7 +394,13 @@ namespace MirrorBot.Worker.Services.English
                     }
                 }
 
-                // Обновить счетчик голосовых сообщений
+                // ✅ ИЗМЕНЕНО: Использовать голосовое сообщение через новый сервис
+                await _subscriptionService.UseMessageAsync(
+                    userId,
+                    isVoice: true,
+                    tokensUsed: 0,
+                    cancellationToken);
+
                 await _progressRepo.IncrementMessagesAsync(userId, true, cancellationToken);
 
                 return textResponse;

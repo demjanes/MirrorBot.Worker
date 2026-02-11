@@ -7,6 +7,7 @@ using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.Referral;
+using MirrorBot.Worker.Services.Subscr;
 using MongoDB.Bson;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -23,6 +24,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IMirrorBotsRepository _mirrorBots;
         private readonly IAdminNotifier _notifier;
         private readonly IReferralService _referralService;
+        private readonly ISubscriptionService _subscriptionService;
         private readonly IMirrorBotOwnerSettingsRepository _ownerSettingsRepo;
 
         public BotCallbackHandler(
@@ -30,12 +32,14 @@ namespace MirrorBot.Worker.Flow.Handlers
             IMirrorBotsRepository mirrorBots,
             IAdminNotifier notifier,
             IReferralService referralService,
+            ISubscriptionService subscriptionService,
             IMirrorBotOwnerSettingsRepository ownerSettingsRepo)
         {          
             _users = users;
             _mirrorBots = mirrorBots;
             _notifier = notifier;
             _referralService = referralService;
+            _subscriptionService = subscriptionService;
             _ownerSettingsRepo = ownerSettingsRepo;
         }
 
@@ -84,9 +88,15 @@ namespace MirrorBot.Worker.Flow.Handlers
                 await HandleReferralAsync(t, cb, ct);
                 return;
             }
+
+            if (string.Equals(cb.Section, BotRoutes.Callbacks.Subscription._section, StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleSubscriptionAsync(t, cb, ct);
+                return;
+            }
         }
 
-        private async Task HandleMenuAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleMenuAsync(BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
@@ -113,7 +123,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task HandleLangAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleLangAsync(BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
@@ -145,7 +155,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task HandleBotsAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleBotsAsync(BotTask t, CbData cb, CancellationToken ct)
         {
             switch (cb.Action)
             {
@@ -243,7 +253,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
-        private async Task HandleReferralAsync(Data.Models.Core.BotTask t, CbData cb, CancellationToken ct)
+        private async Task HandleReferralAsync(BotTask t, CbData cb, CancellationToken ct)
         {
             var ownerId = t.TgCallbackQuery!.From.Id;
 
@@ -362,6 +372,94 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
+        private async Task HandleSubscriptionAsync(BotTask t, CbData cb, CancellationToken ct)
+        {
+            var userId = t.TgCallbackQuery!.From.Id;
+
+            switch (cb.Action)
+            {
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.MainAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
+
+                        t.AnswerText = BotUi.Text.SubscriptionInfo(t, subscriptionInfo);
+                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, subscriptionInfo.IsPremium);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.ChoosePlanAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var plans = await _subscriptionService.GetAvailablePremiumPlansAsync(ct);
+
+                        var planItems = plans.Select(p => new SubscriptionPlanItem(
+                            Id: p.Id.ToString(),
+                            Name: p.Name,
+                            PriceRub: p.PriceRub,
+                            DurationDays: p.DurationDays,
+                            IsCurrentPlan: false)).ToList();
+
+                        t.AnswerText = BotUi.Text.SubscriptionPlans(t, planItems);
+                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionPlans(t, planItems);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.BuyAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var args = cb.Args ?? Array.Empty<string>();
+                        if (!TryGetObjectId(args, 0, out var planId))
+                            return;
+
+                        // TODO: Интеграция с ЮКасса (следующий этап)
+                        t.AnswerText = t.AnswerLang == UiLang.En
+                            ? "💳 Payment integration coming soon..."
+                            : "💳 Интеграция оплаты скоро...";
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.CancelAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        t.AnswerText = BotUi.Text.SubscriptionCancelConfirm(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionCancelConfirm(t);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.CancelYesAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var (success, errorMessage) = await _subscriptionService.CancelSubscriptionAsync(userId, ct); // ✅ НОВОЕ
+
+                        if (!success)
+                        {
+                            t.AnswerText = t.AnswerLang == UiLang.En
+                                ? $"❌ Error: {errorMessage}"
+                                : $"❌ Ошибка: {errorMessage}";
+                            await SendOrEditAsync(t, ct);
+                            return;
+                        }
+
+                        t.AnswerText = BotUi.Text.SubscriptionCanceled(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, isPremium: false);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.CancelNoAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
+
+                        t.AnswerText = BotUi.Text.SubscriptionInfo(t, subscriptionInfo);
+                        t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, subscriptionInfo.IsPremium);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                default:
+                    return;
+            }
+        }
         private async Task<bool> TryLoadOwnedBotAsync(BotTask t, CbData cb, int index, CancellationToken ct)
         {
             var args = cb.Args ?? Array.Empty<string>();

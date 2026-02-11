@@ -10,6 +10,7 @@ using MirrorBot.Worker.Services;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.Referral;
+using MirrorBot.Worker.Services.Subscr;
 using MirrorBot.Worker.Services.TokenEncryption;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -36,6 +37,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly ITokenEncryptionService _tokenEncryption;
         private readonly IOptions<LimitsConfiguration> _limitsOptions;
         private readonly IReferralService _referralService;
+        private readonly ISubscriptionService _subscriptionService;
         private readonly IEnglishTutorService _englishTutorService;
 
         public BotMessageHandler(
@@ -47,6 +49,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             ITokenEncryptionService tokenEncryptionService,
             IOptions<LimitsConfiguration> limitsOptions,
             IReferralService referralService,
+            ISubscriptionService subscriptionService,
             IEnglishTutorService englishTutorService)
         {
             _logger = logger;
@@ -57,6 +60,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             _tokenEncryption = tokenEncryptionService;
             _limitsOptions = limitsOptions;
             _referralService = referralService;
+            _subscriptionService = subscriptionService;
             _englishTutorService = englishTutorService;
         }
 
@@ -132,6 +136,12 @@ namespace MirrorBot.Worker.Flow.Handlers
                     taskEntity.AnswerText = BotUi.Text.Ref(taskEntity);
                     taskEntity.AnswerKeyboard = BotUi.Keyboards.Ref(taskEntity);
                     await SendAsync(taskEntity, ct);
+                    return;
+
+                case BotRoutes.Commands.Subscription:
+                case BotRoutes.Commands.SubscriptionTxt_Ru:
+                case BotRoutes.Commands.SubscriptionTxt_En:
+                    await HandleSubscriptionCommandAsync(taskEntity, ct);
                     return;
 
                 default:
@@ -442,81 +452,40 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
+        private async Task HandleSubscriptionCommandAsync(BotTask entity, CancellationToken ct)
+        {
+            try
+            {
+                var userId = entity.TgMessage!.From!.Id;
 
-        //private async Task UpsertSeenAsync(BotTask entity, string? startParameter, CancellationToken ct)
-        //{
-        //    if (entity?.BotContext is null) return;
-        //    if (entity.TgMessage?.From is null) return;
+                // Получаем информацию о подписке через ISubscriptionService
+                var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
 
-        //    var from = entity.TgMessage.From;
+                entity.AnswerText = BotUi.Text.SubscriptionInfo(entity, subscriptionInfo);
+                entity.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(entity, subscriptionInfo.IsPremium);
 
-        //    var nowUtc = DateTime.UtcNow;
-        //    var lastBotKey = entity.BotContext.MirrorBotId == ObjectId.Empty
-        //        ? "__main__"
-        //        : entity.BotContext.MirrorBotId.ToString();
+                await entity.TgClient.SendMessage(
+                    entity.TgChatId.Value,
+                    entity.AnswerText,
+                    parseMode: ParseMode.Html,
+                    replyMarkup: entity.AnswerKeyboard,
+                    cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling subscription command for user {UserId}", entity.TgMessage?.From?.Id);
 
-        //    long? refOwner = null;
-        //    ObjectId? refBotId = null;
+                await entity.TgClient.SendMessage(
+                    entity.TgChatId.Value,
+                    "Произошла ошибка при получении информации о подписке.",
+                    cancellationToken: ct);
+            }
+        }
 
-        //    // Определяем реферера: сначала из start-параметра, потом из владельца зеркала
-        //    var referrerFromParam = ReferralCodeParser.TryParseOwnerTelegramId(startParameter);
-
-        //    if (referrerFromParam.HasValue && referrerFromParam.Value != from.Id)
-        //    {
-        //        // Есть валидный start-параметр и это не сам пользователь
-        //        refOwner = referrerFromParam.Value;
-        //        refBotId = entity.BotContext.MirrorBotId != ObjectId.Empty
-        //            ? entity.BotContext.MirrorBotId
-        //            : null;
-        //    }
-        //    else if (entity.BotContext.OwnerTelegramUserId != 0
-        //             && entity.BotContext.MirrorBotId != ObjectId.Empty
-        //             && from.Id != entity.BotContext.OwnerTelegramUserId)
-        //    {
-        //        // Нет start-параметра, но пользователь пришел через зеркало
-        //        refOwner = entity.BotContext.OwnerTelegramUserId;
-        //        refBotId = entity.BotContext.MirrorBotId;
-        //    }
-
-        //    var seen = new UserSeenEvent(
-        //        TgUserId: from.Id,
-        //        TgUsername: from.Username,
-        //        TgFirstName: from.FirstName,
-        //        TgLastName: from.LastName,
-        //        TgLangCode: from.LanguageCode,
-        //        LastBotKey: lastBotKey,
-        //        LastChatId: entity.TgChatId,
-        //        SeenAtUtc: nowUtc,
-        //        ReferrerOwnerTgUserId: refOwner,
-        //        ReferrerMirrorBotId: refBotId
-        //    );
-
-        //    var adminText = AllowSecretsInAdminLogs
-        //        ? (entity.TgMessage.Text ?? "<empty>")
-        //        : SanitizeForAdmin(entity.TgMessage.Text);
-
-        //    _notifier.TryEnqueue(AdminChannel.Info,
-        //        $"#id{seen.TgUserId} @{seen.TgUsername}\\n" +
-        //        $"{adminText}\\n" +
-        //        $"@{entity.BotContext.BotUsername}");
-
-        //    var user = await _users.UpsertSeenAsync(seen, ct);
-        //    entity.User = user;
-
-        //    // Обработка реферала
-        //    if (refOwner.HasValue)
-        //    {
-        //        await _referralService.RegisterReferralAsync(
-        //            userId: from.Id,
-        //            referrerOwnerTgUserId: refOwner,
-        //            referrerMirrorBotId: refBotId,
-        //            cancellationToken: ct);
-        //    }
-        //}
         private async Task UpsertSeenAsync(
-     BotTask entity,
-     string? startParameter,
-     CancellationToken ct)
+            BotTask entity,
+            string? startParameter,
+            CancellationToken ct)
         {
             if (entity?.BotContext is null) return;
             if (entity.TgMessage?.From is null) return;

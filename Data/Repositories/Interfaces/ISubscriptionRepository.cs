@@ -1,4 +1,6 @@
 ﻿using MirrorBot.Worker.Data.Models.Core;
+using MirrorBot.Worker.Data.Models.Subscription;
+using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,10 +29,11 @@ namespace MirrorBot.Worker.Data.Repositories.Interfaces
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Проверить, может ли пользователь отправить сообщение
+        /// Проверить, может ли пользователь отправить сообщение (с учетом типа)
         /// </summary>
         Task<bool> CanSendMessageAsync(
             long userId,
+            bool isVoice = false,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -38,14 +41,16 @@ namespace MirrorBot.Worker.Data.Repositories.Interfaces
         /// </summary>
         Task<bool> UseMessageAsync(
             long userId,
+            bool isVoice = false,
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Обновить подписку на платную
+        /// Обновить подписку на Premium
         /// </summary>
         Task<bool> UpgradeSubscriptionAsync(
             long userId,
             SubscriptionType type,
+            ObjectId planId,
             string paymentId,
             CancellationToken cancellationToken = default);
 
@@ -66,8 +71,14 @@ namespace MirrorBot.Worker.Data.Repositories.Interfaces
         /// <summary>
         /// Получить количество использованных сообщений
         /// </summary>
-        Task<int> GetUsedMessagesCountAsync(
+        Task<(int TextMessages, int VoiceMessages)> GetUsedMessagesCountAsync(
             long userId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Проверить истекшие подписки и обновить их статус
+        /// </summary>
+        Task<int> ExpireSubscriptionsAsync(
             CancellationToken cancellationToken = default);
     }
 }

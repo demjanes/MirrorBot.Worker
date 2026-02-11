@@ -1,11 +1,20 @@
 ﻿using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Models.Core;
+using MirrorBot.Worker.Data.Models.Subscription;
 using MirrorBot.Worker.Flow.Routes;
 using System.Text;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MirrorBot.Worker.Flow.UI
 {
+    public record SubscriptionPlanItem(
+    string Id,
+    string Name,
+    decimal PriceRub,
+    int DurationDays,
+    bool IsCurrentPlan);
+
+
     public static class BotUi
     {
         public static UiText T(UiLang lang) => new(lang);
@@ -555,6 +564,207 @@ namespace MirrorBot.Worker.Flow.UI
 
 
 
+
+            /// <summary>
+            /// Информация о текущей подписке
+            /// </summary>
+            public static string SubscriptionInfo(
+                BotTask entity,
+                SubscriptionInfo info)
+            {
+                var sb = new StringBuilder();
+
+                switch (entity.AnswerLang)
+                {
+                    case UiLang.En:
+                        sb.AppendLine("💎 <b>Your Subscription</b>\n");
+
+                        sb.AppendLine($"📌 Plan: <b>{info.TypeName}</b>");
+
+                        if (info.IsPremium)
+                        {
+                            sb.AppendLine($"⏰ Expires: <b>{info.ExpiresAt:yyyy-MM-dd HH:mm UTC}</b>");
+                            sb.AppendLine($"📅 Days remaining: <b>{info.DaysRemaining}</b>\n");
+
+                            sb.AppendLine("✨ <b>Premium Features:</b>");
+                            sb.AppendLine("✅ Unlimited text messages");
+                            sb.AppendLine("✅ Voice messages support");
+                            sb.AppendLine("✅ Grammar corrections");
+                            sb.AppendLine("✅ Vocabulary tracking");
+                            sb.AppendLine("✅ Priority support");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"📊 Daily limit: <b>{info.DailyTextLimit} messages</b>");
+                            sb.AppendLine($"📈 Used today: <b>{info.TextMessagesUsedToday}/{info.DailyTextLimit}</b>\n");
+
+                            sb.AppendLine("⚠️ <b>Free Plan Limitations:</b>");
+                            sb.AppendLine("❌ Voice messages disabled");
+                            sb.AppendLine("❌ Limited text messages");
+                            sb.AppendLine("❌ Basic features only\n");
+
+                            sb.AppendLine("💡 Upgrade to Premium for unlimited access!");
+                        }
+                        break;
+
+                    default:
+                    case UiLang.Ru:
+                        sb.AppendLine("💎 <b>Ваша подписка</b>\n");
+
+                        sb.AppendLine($"📌 Тариф: <b>{info.TypeName}</b>");
+
+                        if (info.IsPremium)
+                        {
+                            sb.AppendLine($"⏰ Истекает: <b>{info.ExpiresAt:yyyy-MM-dd HH:mm UTC}</b>");
+                            sb.AppendLine($"📅 Осталось дней: <b>{info.DaysRemaining}</b>\n");
+
+                            sb.AppendLine("✨ <b>Premium возможности:</b>");
+                            sb.AppendLine("✅ Безлимитные текстовые сообщения");
+                            sb.AppendLine("✅ Поддержка голосовых сообщений");
+                            sb.AppendLine("✅ Проверка грамматики");
+                            sb.AppendLine("✅ Отслеживание словарного запаса");
+                            sb.AppendLine("✅ Приоритетная поддержка");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"📊 Дневной лимит: <b>{info.DailyTextLimit} сообщений</b>");
+                            sb.AppendLine($"📈 Использовано сегодня: <b>{info.TextMessagesUsedToday}/{info.DailyTextLimit}</b>\n");
+
+                            sb.AppendLine("⚠️ <b>Ограничения Free тарифа:</b>");
+                            sb.AppendLine("❌ Голосовые сообщения недоступны");
+                            sb.AppendLine("❌ Ограниченное количество сообщений");
+                            sb.AppendLine("❌ Только базовые функции\n");
+
+                            sb.AppendLine("💡 Перейдите на Premium для безлимитного доступа!");
+                        }
+                        break;
+                }
+
+                return sb.ToString();
+            }
+
+            /// <summary>
+            /// Список доступных Premium планов
+            /// </summary>
+            public static string SubscriptionPlans(
+                BotTask entity,
+                List<SubscriptionPlanItem> plans)
+            {
+                var sb = new StringBuilder();
+
+                switch (entity.AnswerLang)
+                {
+                    case UiLang.En:
+                        sb.AppendLine("💎 <b>Premium Plans</b>\n");
+                        sb.AppendLine("Choose the plan that suits you:\n");
+
+                        foreach (var plan in plans)
+                        {
+                            var discount = plan.DurationDays switch
+                            {
+                                90 => " (Save 10%)",
+                                180 => " (Save 20%)",
+                                365 => " (Save 30%)",
+                                _ => ""
+                            };
+
+                            sb.AppendLine($"• <b>{plan.Name}</b>");
+                            sb.AppendLine($"  💰 {plan.PriceRub:N0} ₽{discount}");
+                            sb.AppendLine($"  📅 {plan.DurationDays} days\n");
+                        }
+
+                        sb.AppendLine("✨ All Premium plans include:");
+                        sb.AppendLine("✅ Unlimited messages");
+                        sb.AppendLine("✅ Voice messages");
+                        sb.AppendLine("✅ Grammar corrections");
+                        sb.AppendLine("✅ Vocabulary tracking");
+                        break;
+
+                    default:
+                    case UiLang.Ru:
+                        sb.AppendLine("💎 <b>Premium тарифы</b>\n");
+                        sb.AppendLine("Выберите подходящий тариф:\n");
+
+                        foreach (var plan in plans)
+                        {
+                            var discount = plan.DurationDays switch
+                            {
+                                90 => " (Скидка 10%)",
+                                180 => " (Скидка 20%)",
+                                365 => " (Скидка 30%)",
+                                _ => ""
+                            };
+
+                            sb.AppendLine($"• <b>{plan.Name}</b>");
+                            sb.AppendLine($"  💰 {plan.PriceRub:N0} ₽{discount}");
+                            sb.AppendLine($"  📅 {plan.DurationDays} дней\n");
+                        }
+
+                        sb.AppendLine("✨ Все Premium тарифы включают:");
+                        sb.AppendLine("✅ Безлимитные сообщения");
+                        sb.AppendLine("✅ Голосовые сообщения");
+                        sb.AppendLine("✅ Проверку грамматики");
+                        sb.AppendLine("✅ Отслеживание слов");
+                        break;
+                }
+
+                return sb.ToString();
+            }
+
+            /// <summary>
+            /// Подтверждение отмены подписки
+            /// </summary>
+            public static string SubscriptionCancelConfirm(BotTask entity)
+            {
+                return entity.AnswerLang switch
+                {
+                    UiLang.En =>
+                        "⚠️ <b>Cancel Subscription?</b>\n\n" +
+                        "Your Premium subscription will remain active until the end of the current period.\n\n" +
+                        "Are you sure you want to cancel?",
+                    _ =>
+                        "⚠️ <b>Отменить подписку?</b>\n\n" +
+                        "Ваша Premium подписка останется активной до конца текущего периода.\n\n" +
+                        "Вы уверены, что хотите отменить?"
+                };
+            }
+
+            /// <summary>
+            /// Результат отмены подписки
+            /// </summary>
+            public static string SubscriptionCanceled(BotTask entity)
+            {
+                return entity.AnswerLang switch
+                {
+                    UiLang.En =>
+                        "✅ <b>Subscription Canceled</b>\n\n" +
+                        "Your Premium subscription has been canceled.\n" +
+                        "You can still use Premium features until the end of the current period.",
+                    _ =>
+                        "✅ <b>Подписка отменена</b>\n\n" +
+                        "Ваша Premium подписка отменена.\n" +
+                        "Вы можете использовать Premium функции до конца текущего периода."
+                };
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             public const string AskBotToken = "Пришлите токен бота следующим сообщением.";
             public const string TokenAlreadyAdded = "Этот токен уже добавлен.";
             public static string MirrorAdded(string username) => $"Зеркало @{username} добавлено. Оно запустится автоматически.";
@@ -813,7 +1023,96 @@ namespace MirrorBot.Worker.Flow.UI
 
 
 
+            /// <summary>
+            /// Главное меню подписки
+            /// </summary>
+            public static InlineKeyboardMarkup SubscriptionInfo(BotTask entity, bool isPremium)
+            {
+                var buttons = new List<List<InlineKeyboardButton>>();
 
+                if (!isPremium)
+                {
+                    // Для Free - кнопка перехода на Premium
+                    buttons.Add(new List<InlineKeyboardButton>
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    entity.AnswerLang == UiLang.En ? "💎 Upgrade to Premium" : "💎 Перейти на Premium",
+                    BotRoutes.Callbacks.Subscription.ChoosePlan)
+            });
+                }
+                else
+                {
+                    // Для Premium - кнопка отмены
+                    buttons.Add(new List<InlineKeyboardButton>
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    entity.AnswerLang == UiLang.En ? "❌ Cancel Subscription" : "❌ Отменить подписку",
+                    BotRoutes.Callbacks.Subscription.Cancel)
+            });
+                }
+
+                // Кнопка "Назад"
+                buttons.Add(new List<InlineKeyboardButton>
+        {
+            InlineKeyboardButton.WithCallbackData(
+                entity.AnswerLang == UiLang.En ? "⬅️ Back" : "⬅️ Назад",
+                BotRoutes.Callbacks.Menu.MenuMain)
+        });
+
+                return new InlineKeyboardMarkup(buttons);
+            }
+
+            /// <summary>
+            /// Выбор Premium плана
+            /// </summary>
+            public static InlineKeyboardMarkup SubscriptionPlans(
+                BotTask entity,
+                List<SubscriptionPlanItem> plans)
+            {
+                var buttons = new List<List<InlineKeyboardButton>>();
+
+                // Кнопка для каждого плана
+                foreach (var plan in plans)
+                {
+                    buttons.Add(new List<InlineKeyboardButton>
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    $"{plan.Name} — {plan.PriceRub:N0} ₽",
+                    BotRoutes.Callbacks.Subscription.Buy(plan.Id))
+            });
+                }
+
+                // Кнопка "Назад"
+                buttons.Add(new List<InlineKeyboardButton>
+        {
+            InlineKeyboardButton.WithCallbackData(
+                entity.AnswerLang == UiLang.En ? "⬅️ Back" : "⬅️ Назад",
+                BotRoutes.Callbacks.Subscription.Main)
+        });
+
+                return new InlineKeyboardMarkup(buttons);
+            }
+
+            /// <summary>
+            /// Подтверждение отмены подписки
+            /// </summary>
+            public static InlineKeyboardMarkup SubscriptionCancelConfirm(BotTask entity)
+            {
+                var buttons = new List<List<InlineKeyboardButton>>
+        {
+            new()
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    entity.AnswerLang == UiLang.En ? "✅ Yes, Cancel" : "✅ Да, отменить",
+                    BotRoutes.Callbacks.Subscription.CancelYes),
+                InlineKeyboardButton.WithCallbackData(
+                    entity.AnswerLang == UiLang.En ? "❌ No, Keep" : "❌ Нет, оставить",
+                    BotRoutes.Callbacks.Subscription.CancelNo)
+            }
+        };
+
+                return new InlineKeyboardMarkup(buttons);
+            }
 
 
 

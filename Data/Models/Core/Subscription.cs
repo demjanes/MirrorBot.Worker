@@ -1,10 +1,6 @@
-﻿using MongoDB.Bson;
+﻿using MirrorBot.Worker.Data.Models.Subscription;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MirrorBot.Worker.Data.Models.Core
 {
@@ -44,7 +40,7 @@ namespace MirrorBot.Worker.Data.Models.Core
         /// Лимит сообщений (для Free тарифа)
         /// </summary>
         [BsonElement("messagesLimit")]
-        public int MessagesLimit { get; set; } = 5;
+        public int MessagesLimit { get; set; } = 10;
 
         /// <summary>
         /// Использовано сообщений в текущем периоде
@@ -76,31 +72,21 @@ namespace MirrorBot.Worker.Data.Models.Core
         /// </summary>
         [BsonElement("paymentId")]
         public string? PaymentId { get; set; }
-    }
 
-    /// <summary>
-    /// Типы подписок
-    /// </summary>
-    public enum SubscriptionType
-    {
+        // ✅ ДОБАВЛЕНО: Ссылка на тарифный план
         /// <summary>
-        /// Бесплатный (5 сообщений)
+        /// ID тарифного плана (для получения параметров)
         /// </summary>
-        Free,
+        [BsonElement("planId")]
+        [BsonRepresentation(BsonType.ObjectId)]
+        public ObjectId? PlanId { get; set; }
 
+        // ✅ ДОБАВЛЕНО: Для отслеживания статуса
         /// <summary>
-        /// Месячная подписка
+        /// Статус подписки
         /// </summary>
-        Monthly,
-
-        /// <summary>
-        /// Квартальная (3 месяца)
-        /// </summary>
-        Quarterly,
-
-        /// <summary>
-        /// Годовая
-        /// </summary>
-        Yearly
-    }
+        [BsonElement("status")]
+        [BsonRepresentation(BsonType.String)]
+        public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Active;
+    }        
 }
