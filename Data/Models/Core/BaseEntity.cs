@@ -21,6 +21,9 @@ namespace MirrorBot.Worker.Data.Models.Core
         [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
+        
+        
+        
         /// <summary>
         /// Конструктор базовой сущности
         /// </summary>

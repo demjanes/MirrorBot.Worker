@@ -280,6 +280,79 @@ namespace MirrorBot.Worker.Services.Referral
                 return (false, "Ошибка при обработке запроса на вывод");
             }
         }
+
+        public async Task ProcessReferralPaymentAsync(
+            long referrerId,
+            long referralUserId,
+            decimal paymentAmount,
+            decimal rewardAmount,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Проверяем, первая ли это оплата от этого реферала
+                var existingTransactions = await _transactionRepo.GetOwnerTransactionsAsync(
+                    referrerId,
+                    limit: 1000,
+                    cancellationToken);
+
+                var isFirstPayment = !existingTransactions.Exists(
+                    t => t.ReferredTgUserId == referralUserId &&
+                         t.Kind == ReferralTransactionKind.Accrual);
+
+                // Если первая оплата - инкрементируем счетчик платящих рефералов
+                if (isFirstPayment)
+                {
+                    await _statsRepo.IncrementPaidReferralsAsync(
+                        referrerId,
+                        cancellationToken);
+                }
+
+                // Создаем транзакцию с правильными полями
+                var transaction = new ReferralTransaction
+                {
+                    OwnerTgUserId = referrerId,
+                    ReferredTgUserId = referralUserId,
+                    MirrorBotId = null, // Платеж через основную систему, не через зеркало
+                    Amount = rewardAmount,
+                    Currency = "RUB",
+                    Kind = ReferralTransactionKind.Accrual,
+                    PaymentId = null, // Можно передать ID платежа из Payment, если нужно
+                    Source = "YooKassa",
+                    Description = $"Реферальный бонус за оплату подписки на сумму {paymentAmount:F2}₽"
+                };
+
+                await _transactionRepo.CreateAsync(transaction, cancellationToken);
+
+                // Обновляем баланс и доход
+                await _statsRepo.AddEarningsAsync(referrerId, rewardAmount, cancellationToken);
+
+                // Отправляем уведомление рефереру (правильное имя метода)
+                await _notificationService.NotifyReferralEarningAsync(
+                    referrerId,
+                    referralUserId,
+                    rewardAmount,
+                    "RUB",
+                    cancellationToken);
+
+                _logger.LogInformation(
+                    "Referral reward processed: ReferrerId={ReferrerId}, ReferralUserId={ReferralUserId}, " +
+                    "PaymentAmount={PaymentAmount}₽, RewardAmount={RewardAmount}₽",
+                    referrerId,
+                    referralUserId,
+                    paymentAmount,
+                    rewardAmount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error processing referral payment: ReferrerId={ReferrerId}, ReferralUserId={ReferralUserId}",
+                    referrerId,
+                    referralUserId);
+                throw;
+            }
+        }
     }
 
 }

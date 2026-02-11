@@ -55,5 +55,15 @@ namespace MirrorBot.Worker.Services.Referral
             long ownerTgUserId,
             decimal amount,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Обработать реферальный платеж (начислить вознаграждение и создать транзакцию).
+        /// </summary>
+        Task ProcessReferralPaymentAsync(
+            long referrerId,
+            long referralUserId,
+            decimal paymentAmount,
+            decimal rewardAmount,
+            CancellationToken cancellationToken = default);
     }
 }

@@ -750,7 +750,23 @@ namespace MirrorBot.Worker.Flow.UI
 
 
 
-
+            /// <summary>
+            /// Текст с ссылкой на оплату.
+            /// </summary>
+            public static string PaymentLink(BotTask entity)
+            {
+                return entity.AnswerLang switch
+                {
+                    UiLang.En =>
+                        "💳 <b>Payment Link</b>\n\n" +
+                        "Click the button below to complete the payment.\n\n" +
+                        "After successful payment, your Premium subscription will be activated automatically.",
+                    _ =>
+                        "💳 <b>Ссылка для оплаты</b>\n\n" +
+                        "Нажмите на кнопку ниже для завершения оплаты.\n\n" +
+                        "После успешной оплаты ваша Premium подписка будет активирована автоматически."
+                };
+            }
 
 
 
@@ -1115,7 +1131,29 @@ namespace MirrorBot.Worker.Flow.UI
             }
 
 
+            /// <summary>
+            /// Клавиатура с ссылкой на оплату.
+            /// </summary>
+            public static InlineKeyboardMarkup PaymentLink(BotTask entity, string paymentUrl)
+            {
+                var buttons = new List<List<InlineKeyboardButton>>
+    {
+        new()
+        {
+            InlineKeyboardButton.WithUrl(
+                entity.AnswerLang == UiLang.En ? "💳 Pay" : "💳 Оплатить",
+                paymentUrl)
+        },
+        new()
+        {
+            InlineKeyboardButton.WithCallbackData(
+                entity.AnswerLang == UiLang.En ? "⬅️ Back" : "⬅️ Назад",
+                BotRoutes.Callbacks.Subscription.ChoosePlan)
+        }
+    };
 
+                return new InlineKeyboardMarkup(buttons);
+            }
 
 
 

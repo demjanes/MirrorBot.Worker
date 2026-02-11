@@ -1,18 +1,19 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Options;
 using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
-using MirrorBot.Worker.Data.Models.Subscription;
 using MirrorBot.Worker.Data.Repositories.Implementations;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
+using MirrorBot.Worker.Data.Seeders;
 using MirrorBot.Worker.Flow;
 using MirrorBot.Worker.Flow.Handlers;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.AI;
 using MirrorBot.Worker.Services.AI.Implementations;
 using MirrorBot.Worker.Services.AI.Interfaces;
-using MirrorBot.Worker.Services.AI.Providers.OpenAI;
 using MirrorBot.Worker.Services.AI.Providers.YandexGPT;
 using MirrorBot.Worker.Services.English;
+using MirrorBot.Worker.Services.Payments;
 using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.Subscr;
 using MirrorBot.Worker.Services.TokenEncryption;
@@ -21,165 +22,157 @@ using Telegram.Bot;
 
 Console.WriteLine("=== Начало инициализации ===");
 
-IHost host;
+// ✅ ИЗМЕНЕНО: Используем WebApplicationBuilder вместо HostBuilder
+var builder = WebApplication.CreateBuilder(args);
+
 try
 {
-    host = Host.CreateDefaultBuilder(args)
-    .ConfigureServices((context, services) =>
+    // ============ Конфигурации ============
+    builder.Services.Configure<BotConfiguration>(builder.Configuration.GetSection("BotConfiguration"));
+    builder.Services.Configure<LimitsConfiguration>(builder.Configuration.GetSection("Limits"));
+    builder.Services.Configure<MongoConfiguration>(builder.Configuration.GetSection("Mongo"));
+    builder.Services.Configure<AdminNotificationsConfiguration>(builder.Configuration.GetSection("AdminNotifications"));
+    builder.Services.Configure<ReferralConfiguration>(builder.Configuration.GetSection(ReferralConfiguration.SectionName));
+    builder.Services.Configure<AIConfiguration>(builder.Configuration.GetSection(AIConfiguration.SectionName));
+    builder.Services.Configure<SpeechConfiguration>(builder.Configuration.GetSection(SpeechConfiguration.SectionName));
+    builder.Services.Configure<YooKassaConfiguration>(builder.Configuration.GetSection(YooKassaConfiguration.SectionName));
+
+    // ============ HttpClient для AI провайдеров ============
+    builder.Services.AddHttpClient<YandexGPTProvider>();
+    builder.Services.AddHttpClient<YandexSpeechKitProvider>();
+
+    // ============ Регистрация AI провайдеров (Singleton - stateless) ============
+    builder.Services.AddSingleton<YandexGPTProvider>();
+    builder.Services.AddSingleton<YandexSpeechKitProvider>();
+
+    // ============ Фабрики (Singleton) ============
+    builder.Services.AddSingleton<AIProviderFactory>();
+    builder.Services.AddSingleton<SpeechProviderFactory>();
+    builder.Services.AddSingleton<IAIProvider>(sp => sp.GetRequiredService<AIProviderFactory>().GetProvider());
+    builder.Services.AddSingleton<ISpeechProvider>(sp => sp.GetRequiredService<SpeechProviderFactory>().GetProvider());
+
+    // ============ English Tutor Services (Scoped - зависят от репозиториев) ============
+    builder.Services.AddScoped<GrammarAnalyzer>();
+    builder.Services.AddScoped<VocabularyExtractor>();
+    builder.Services.AddScoped<ConversationManager>();
+    builder.Services.AddScoped<IEnglishTutorService, EnglishTutorService>();
+
+    // ============ Cache service (Scoped) ============
+    builder.Services.AddScoped<ICacheService, CacheService>();
+
+    // ============ Шифрование токенов (Singleton - stateless) ============
+    builder.Services.AddSingleton<ITokenEncryptionService>(sp =>
     {
-        // ============ Конфигурации ============
-        services.Configure<BotConfiguration>(context.Configuration.GetSection("BotConfiguration"));
-        services.Configure<LimitsConfiguration>(context.Configuration.GetSection("Limits"));
-        services.Configure<MongoConfiguration>(context.Configuration.GetSection("Mongo"));
-        services.Configure<AdminNotificationsConfiguration>(context.Configuration.GetSection("AdminNotifications"));
-        services.Configure<ReferralConfiguration>(context.Configuration.GetSection(ReferralConfiguration.SectionName));
-        services.Configure<AIConfiguration>(context.Configuration.GetSection(AIConfiguration.SectionName));
-        services.Configure<SpeechConfiguration>(context.Configuration.GetSection(SpeechConfiguration.SectionName));
+        var encryptionKey = sp.GetRequiredService<IConfiguration>()
+            .GetSection("BotConfiguration")
+            .GetValue<string>("EncryptionKey");
 
-        // ============ HttpClient для AI провайдеров ============
-        services.AddHttpClient<YandexGPTProvider>();
-        services.AddHttpClient<YandexSpeechKitProvider>();
-        //services.AddHttpClient<OpenAIProvider>();
-        //services.AddHttpClient<WhisperProvider>();
+        if (string.IsNullOrWhiteSpace(encryptionKey))
+            throw new InvalidOperationException("EncryptionKey not configured!");
 
-        // ============ Регистрация AI провайдеров (Singleton - stateless) ============
-        services.AddSingleton<YandexGPTProvider>();
-        services.AddSingleton<YandexSpeechKitProvider>();
-        //services.AddSingleton<OpenAIProvider>();
-        //services.AddSingleton<WhisperProvider>();
+        return new TokenEncryptionService(encryptionKey);
+    });
 
-        // ============ Фабрики (Singleton) ============
-        services.AddSingleton<AIProviderFactory>();
-        services.AddSingleton<SpeechProviderFactory>();
-        services.AddSingleton<IAIProvider>(sp => sp.GetRequiredService<AIProviderFactory>().GetProvider());
-        services.AddSingleton<ISpeechProvider>(sp => sp.GetRequiredService<SpeechProviderFactory>().GetProvider());
+    // ============ MongoDB (Singleton - connection) ============
+    builder.Services.AddSingleton<IMongoClient>(sp =>
+    {
+        var opt = sp.GetRequiredService<IOptions<MongoConfiguration>>().Value;
+        return new MongoClient(opt.ConnectionString);
+    });
+    builder.Services.AddSingleton(sp =>
+    {
+        var opt = sp.GetRequiredService<IOptions<MongoConfiguration>>().Value;
+        var client = sp.GetRequiredService<IMongoClient>();
+        return client.GetDatabase(opt.Database);
+    });
 
-        // ============ English Tutor Services (Scoped - зависят от репозиториев) ============
-        services.AddScoped<GrammarAnalyzer>();
-        services.AddScoped<VocabularyExtractor>();
-        services.AddScoped<ConversationManager>();
-        services.AddScoped<IEnglishTutorService, EnglishTutorService>();
+    // ============ HttpClient для Telegram ============
+    builder.Services.AddHttpClient("telegram").RemoveAllLoggers();
 
-        // ============ Cache service (Singleton - stateless) ============
-        services.AddScoped<ICacheService, CacheService>();
+    // ============ Репозитории (Scoped - работают с БД) ============
+    builder.Services.AddScoped<IMirrorBotsRepository, MirrorBotsRepository>();
+    builder.Services.AddScoped<IUsersRepository, UsersRepository>();
+    builder.Services.AddScoped<IConversationRepository, ConversationRepository>();
+    builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
+    builder.Services.AddScoped<IUserProgressRepository, UserProgressRepository>();
+    builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+    builder.Services.AddScoped<ISubscriptionPlanRepository, SubscriptionPlanRepository>();
+    builder.Services.AddScoped<IUsageStatsRepository, UsageStatsRepository>();
+    builder.Services.AddScoped<IUserSettingsRepository, UserSettingsRepository>();
+    builder.Services.AddScoped<ICacheRepository, CacheRepository>();
+    builder.Services.AddScoped<IReferralStatsRepository, ReferralStatsRepository>();
+    builder.Services.AddScoped<IReferralTransactionRepository, ReferralTransactionRepository>();
+    builder.Services.AddScoped<IMirrorBotOwnerSettingsRepository, MirrorBotOwnerSettingsRepository>();
+    builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-        // ============ Шифрование токенов (Singleton - stateless) ============
-        services.AddSingleton<ITokenEncryptionService>(sp =>
-        {
-            var encryptionKey = sp.GetRequiredService<IConfiguration>()
-                .GetSection("BotConfiguration")
-                .GetValue<string>("EncryptionKey");
+    // ============ Сервисы подписок (Scoped - зависят от репозиториев) ============
+    builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
-            if (string.IsNullOrWhiteSpace(encryptionKey))
-                throw new InvalidOperationException("EncryptionKey not configured!");
+    // ============ Referral services (Scoped - зависят от репозиториев) ============
+    builder.Services.AddScoped<IReferralNotificationService, ReferralNotificationService>();
+    builder.Services.AddScoped<IReferralService, ReferralService>();
 
-            return new TokenEncryptionService(encryptionKey);
-        });
+    // ============ Payment services (Scoped - зависят от репозиториев) ============
+    builder.Services.AddScoped<IPaymentService, PaymentService>();
 
-        // ============ MongoDB (Singleton - connection) ============
-        services.AddSingleton<IMongoClient>(sp =>
-        {
-            var opt = sp.GetRequiredService<IOptions<MongoConfiguration>>().Value;
-            return new MongoClient(opt.ConnectionString);
-        });
-        services.AddSingleton(sp =>
-        {
-            var opt = sp.GetRequiredService<IOptions<MongoConfiguration>>().Value;
-            var client = sp.GetRequiredService<IMongoClient>();
-            return client.GetDatabase(opt.Database);
-        });
+    // ============ Handlers (Scoped - зависят от сервисов и репозиториев) ============
+    builder.Services.AddScoped<BotMessageHandler>();
+    builder.Services.AddScoped<BotCallbackHandler>();
+    builder.Services.AddScoped<BotFlowService>();
 
-        // ============ HttpClient для Telegram ============
-        services.AddHttpClient("telegram").RemoveAllLoggers();
+    // ============ BotManager (Singleton - управляет lifecycle ботов) ============
+    builder.Services.AddSingleton<BotManager>();
+    builder.Services.AddSingleton<IBotClientResolver>(sp => sp.GetRequiredService<BotManager>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<BotManager>());
 
-        // ============ Репозитории (Scoped - работают с БД) ============
-        services.AddScoped<IMirrorBotsRepository, MirrorBotsRepository>();
-        services.AddScoped<IUsersRepository, UsersRepository>();
-        services.AddScoped<IConversationRepository, ConversationRepository>();
-        services.AddScoped<IVocabularyRepository, VocabularyRepository>();
-        services.AddScoped<IUserProgressRepository, UserProgressRepository>();
-        services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
-        services.AddScoped<ISubscriptionPlanRepository, SubscriptionPlanRepository>();
-        services.AddScoped<IUsageStatsRepository, UsageStatsRepository>();
-        services.AddScoped<IUserSettingsRepository, UserSettingsRepository>();
-        services.AddScoped<ICacheRepository, CacheRepository>();
-        services.AddScoped<IReferralStatsRepository, ReferralStatsRepository>();
-        services.AddScoped<IReferralTransactionRepository, ReferralTransactionRepository>();
-        services.AddScoped<IMirrorBotOwnerSettingsRepository, MirrorBotOwnerSettingsRepository>();
+    // ============ Логгирование в Telegram ============
+    builder.Services.AddSingleton<ITelegramBotClient>(sp =>
+    {
+        var botToken = sp.GetRequiredService<IOptions<BotConfiguration>>().Value.BotToken;
+        var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram");
+        return new TelegramBotClient(new TelegramBotClientOptions(botToken), http);
+    });
 
-        // ============ Сервисы подписок (Scoped - зависят от репозиториев) ============
-        services.AddScoped<ISubscriptionService, SubscriptionService>();
+    builder.Services.AddSingleton<IAdminNotifier, TelegramAdminNotifier>();
+    builder.Services.AddHostedService(sp => (TelegramAdminNotifier)sp.GetRequiredService<IAdminNotifier>());
 
-        // ============ Referral services (Scoped - зависят от репозиториев) ============
-        services.AddScoped<IReferralNotificationService, ReferralNotificationService>();
-        services.AddScoped<IReferralService, ReferralService>();
+    // ============ Логгирование в файл ============
+    builder.Services.AddLogging(logging =>
+        logging.AddFile("logs/mirrorbot-{Date}.txt",
+            outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} | [{Level:u3}] | {SourceContext} | {Message:lj}:{Exception}{NewLine}",
+            fileSizeLimitBytes: 8_388_608,
+            retainedFileCountLimit: 31));
 
-        // ============ Handlers (Scoped - зависят от сервисов и репозиториев) ============
-        services.AddScoped<BotMessageHandler>();
-        services.AddScoped<BotCallbackHandler>();
-        services.AddScoped<BotFlowService>();
+    // ============ Data Seeders ============
+    builder.Services.AddScoped<SubscriptionPlanSeeder>();
 
-        // ============ BotManager (Singleton - управляет lifecycle ботов) ============
-        services.AddSingleton<BotManager>();
-        services.AddSingleton<IBotClientResolver>(sp => sp.GetRequiredService<BotManager>());
-        services.AddHostedService(sp => sp.GetRequiredService<BotManager>());
+    // ✅ ДОБАВЛЕНО: Minimal API для webhook
+    builder.Services.AddControllers();
 
-        // ============ Логгирование в Telegram ============
-        // Клиент MAIN бота для админ-уведомлений
-        services.AddSingleton<ITelegramBotClient>(sp =>
-        {
-            var botToken = sp.GetRequiredService<IOptions<BotConfiguration>>().Value.BotToken;
-            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram");
-            return new TelegramBotClient(new TelegramBotClientOptions(botToken), http);
-        });
-
-        services.AddSingleton<IAdminNotifier, TelegramAdminNotifier>();
-        services.AddHostedService(sp => (TelegramAdminNotifier)sp.GetRequiredService<IAdminNotifier>());
-
-        // ============ Логгирование в файл ============
-        services.AddLogging(logging =>
-            logging.AddFile("logs/mirrorbot-{Date}.txt",
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} | [{Level:u3}] | {SourceContext} | {Message:lj}:{Exception}{NewLine}",
-                fileSizeLimitBytes: 8_388_608,
-                retainedFileCountLimit: 31));
-
-
-
-        // ============ Data Seeders ============
-        services.AddScoped<SubscriptionPlanSeeder>();
-    })
-    .Build();
+    var app = builder.Build();
 
     Console.WriteLine("=== Host built successfully ===");
-}
-catch (Exception ex)
-{
-    Console.WriteLine("=== ERROR DURING BUILD ===");
-    Console.WriteLine(ex.ToString());
-    Console.WriteLine("Press any key to exit...");
-    Console.ReadKey();
-    throw;
-}
 
+    // ============ Запуск seeder'ов ============
+    Console.WriteLine("=== Starting seeders ===");
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var seeder = scope.ServiceProvider.GetRequiredService<SubscriptionPlanSeeder>();
+        await seeder.SeedAsync();
+        Console.WriteLine("=== Seeding completed ===");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("=== ERROR DURING SEEDING ===");
+        Console.WriteLine(ex.ToString());
+    }
 
-// ============ Запуск seeder'ов ============
-try
-{
-    using var scope = host.Services.CreateScope();
-    var seeder = scope.ServiceProvider.GetRequiredService<SubscriptionPlanSeeder>();
-    await seeder.SeedAsync();
-    Console.WriteLine("=== Seeding completed ===");
-}
-catch (Exception ex)
-{
-    Console.WriteLine("=== ERROR DURING SEEDING ===");
-    Console.WriteLine(ex.ToString());
-    // Продолжаем работу даже если seeding не удался
-}
+    // ✅ ДОБАВЛЕНО: Настройка Minimal API routes
+    app.MapControllers();
 
-try
-{
-    await host.RunAsync();
+    Console.WriteLine("=== Starting host ===");
+    await app.RunAsync();
     Console.WriteLine("=== host.RunAsync() завершен ===");
 }
 catch (Exception ex)
@@ -190,21 +183,3 @@ catch (Exception ex)
     Console.ReadKey();
     throw;
 }
-
-
-
-try
-{
-    await host.RunAsync();
-    Console.WriteLine("=== host.RunAsync() завершен ===");
-}
-catch (Exception ex)
-{
-    Console.WriteLine("=== FATAL ERROR ===");
-    Console.WriteLine(ex.ToString());
-    Console.WriteLine("Press any key to exit...");
-    Console.ReadKey();
-    throw;
-}
-
-

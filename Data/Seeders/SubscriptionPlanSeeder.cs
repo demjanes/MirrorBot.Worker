@@ -1,11 +1,12 @@
-﻿using MirrorBot.Worker.Data.Repositories.Interfaces;
+﻿using MirrorBot.Worker.Data.Models.Subscription;
+using MirrorBot.Worker.Data.Repositories.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MirrorBot.Worker.Data.Models.Subscription
+namespace MirrorBot.Worker.Data.Seeders
 {
     /// <summary>
     /// Заполнение базы тарифными планами при первом запуске.

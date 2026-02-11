@@ -6,6 +6,7 @@ using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.AdminNotifierService;
+using MirrorBot.Worker.Services.Payments;
 using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.Subscr;
 using MongoDB.Bson;
@@ -26,6 +27,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IReferralService _referralService;
         private readonly ISubscriptionService _subscriptionService;
         private readonly IMirrorBotOwnerSettingsRepository _ownerSettingsRepo;
+        private readonly IPaymentService _paymentService;
 
         public BotCallbackHandler(
             IUsersRepository users,
@@ -33,7 +35,8 @@ namespace MirrorBot.Worker.Flow.Handlers
             IAdminNotifier notifier,
             IReferralService referralService,
             ISubscriptionService subscriptionService,
-            IMirrorBotOwnerSettingsRepository ownerSettingsRepo)
+            IMirrorBotOwnerSettingsRepository ownerSettingsRepo,
+            IPaymentService paymentService)
         {          
             _users = users;
             _mirrorBots = mirrorBots;
@@ -41,6 +44,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             _referralService = referralService;
             _subscriptionService = subscriptionService;
             _ownerSettingsRepo = ownerSettingsRepo;
+            _paymentService = paymentService;
         }
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, CallbackQuery cq, CancellationToken ct)
@@ -452,6 +456,34 @@ namespace MirrorBot.Worker.Flow.Handlers
 
                         t.AnswerText = BotUi.Text.SubscriptionInfo(t, subscriptionInfo);
                         t.AnswerKeyboard = BotUi.Keyboards.SubscriptionInfo(t, subscriptionInfo.IsPremium);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+
+                case string s when s.Equals(BotRoutes.Callbacks.Subscription.BuyAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var args = cb.Args ?? Array.Empty<string>();
+                        if (!TryGetObjectId(args, 0, out var planId))
+                            return;
+
+                        // Создаем платеж
+                        var (success, paymentUrl, errorMessage) = await _paymentService.CreatePaymentAsync(
+                            userId,
+                            planId,
+                            ct);
+
+                        if (!success)
+                        {
+                            t.AnswerText = t.AnswerLang == UiLang.En
+                                ? $"❌ Error: {errorMessage}"
+                                : $"❌ Ошибка: {errorMessage}";
+                            await SendOrEditAsync(t, ct);
+                            return;
+                        }
+
+                        // ✅ ИСПРАВЛЕНО: Используем BotUi
+                        t.AnswerText = BotUi.Text.PaymentLink(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.PaymentLink(t, paymentUrl!);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
