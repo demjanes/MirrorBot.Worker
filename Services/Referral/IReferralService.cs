@@ -43,7 +43,7 @@ namespace MirrorBot.Worker.Services.Referral
         /// <summary>
         /// Получить историю транзакций владельца.
         /// </summary>
-        Task<System.Collections.Generic.List<ReferralTransaction>> GetOwnerTransactionsAsync(
+        Task<List<ReferralTransaction>> GetOwnerTransactionsAsync(
             long ownerTgUserId,
             int limit = 100,
             CancellationToken cancellationToken = default);
@@ -59,11 +59,18 @@ namespace MirrorBot.Worker.Services.Referral
         /// <summary>
         /// Обработать реферальный платеж (начислить вознаграждение и создать транзакцию).
         /// </summary>
+        /// <param name="referrerId">Telegram ID реферера</param>
+        /// <param name="referralUserId">Telegram ID реферала</param>
+        /// <param name="paymentAmount">Сумма платежа</param>
+        /// <param name="rewardAmount">Сумма вознаграждения</param>
+        /// <param name="paymentId">ID платежа во внешней системе</param>
+        /// <param name="cancellationToken">Токен отмены</param>
         Task ProcessReferralPaymentAsync(
             long referrerId,
             long referralUserId,
             decimal paymentAmount,
             decimal rewardAmount,
+            string? paymentId = null,
             CancellationToken cancellationToken = default);
     }
 }

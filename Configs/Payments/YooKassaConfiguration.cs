@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MirrorBot.Worker.Configs
+namespace MirrorBot.Worker.Configs.Payments
 {
     public sealed class YooKassaConfiguration
     {

@@ -8,16 +8,25 @@ namespace MirrorBot.Worker.Services.Payments
         /// <summary>
         /// Создать платеж для покупки подписки.
         /// </summary>
+        /// <param name="userId">Telegram ID пользователя</param>
+        /// <param name="planId">ID тарифного плана</param>
+        /// <param name="provider">Провайдер платежа (по умолчанию из конфига)</param>
+        /// <param name="cancellationToken">Токен отмены</param>
         Task<(bool Success, string? PaymentUrl, string? ErrorMessage)> CreatePaymentAsync(
             long userId,
             ObjectId planId,
+            PaymentProvider? provider = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Обработать webhook от ЮКассы.
+        /// Обработать webhook от платежного провайдера.
         /// </summary>
+        /// <param name="provider">Провайдер платежа</param>
+        /// <param name="webhookData">Данные webhook в виде JSON</param>
+        /// <param name="cancellationToken">Токен отмены</param>
         Task<bool> ProcessWebhookAsync(
-            string webhookJson,
+            PaymentProvider provider,
+            string webhookData,
             CancellationToken cancellationToken = default);
 
         /// <summary>

@@ -28,18 +28,18 @@ namespace MirrorBot.Worker.Data.Repositories.Implementations
             _collection.Indexes.CreateOne(
                 new CreateIndexModel<Payment>(userIndex));
 
-            // Уникальный индекс по yookassaPaymentId
-            var yookassaIndex = Builders<Payment>.IndexKeys
-                .Ascending(x => x.YookassaPaymentId);
+            // Уникальный индекс по externalPaymentId
+            var externalIdIndex = Builders<Payment>.IndexKeys
+                .Ascending(x => x.ExternalPaymentId);
 
             var uniqueOptions = new CreateIndexOptions
             {
                 Unique = true,
-                Name = "ux_yookassa_payment_id"
+                Name = "ux_external_payment_id"
             };
 
             _collection.Indexes.CreateOne(
-                new CreateIndexModel<Payment>(yookassaIndex, uniqueOptions));
+                new CreateIndexModel<Payment>(externalIdIndex, uniqueOptions));
 
             // Индекс по статусу и дате
             var statusIndex = Builders<Payment>.IndexKeys
@@ -48,14 +48,22 @@ namespace MirrorBot.Worker.Data.Repositories.Implementations
 
             _collection.Indexes.CreateOne(
                 new CreateIndexModel<Payment>(statusIndex));
+
+            // Индекс по провайдеру
+            var providerIndex = Builders<Payment>.IndexKeys
+                .Ascending(x => x.Provider)
+                .Descending(x => x.CreatedAtUtc);
+
+            _collection.Indexes.CreateOne(
+                new CreateIndexModel<Payment>(providerIndex));
         }
 
-        public async Task<Payment?> GetByYookassaIdAsync(
-            string yookassaPaymentId,
+        public async Task<Payment?> GetByExternalIdAsync(
+            string externalPaymentId,
             CancellationToken cancellationToken = default)
         {
             return await _collection
-                .Find(x => x.YookassaPaymentId == yookassaPaymentId)
+                .Find(x => x.ExternalPaymentId == externalPaymentId)
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
@@ -67,6 +75,26 @@ namespace MirrorBot.Worker.Data.Repositories.Implementations
                 .Find(x => x.UserId == userId)
                 .SortByDescending(x => x.CreatedAtUtc)
                 .ToListAsync(cancellationToken);
+        }
+
+        public async Task<Payment?> UpdateExternalDataAsync(
+            ObjectId paymentId,
+            string externalPaymentId,
+            string? paymentUrl,
+            string? providerData,
+            CancellationToken cancellationToken = default)
+        {
+            var update = Builders<Payment>.Update
+                .Set(x => x.ExternalPaymentId, externalPaymentId)
+                .Set(x => x.PaymentUrl, paymentUrl)
+                .Set(x => x.ProviderData, providerData)
+                .Set(x => x.UpdatedAtUtc, DateTime.UtcNow);
+
+            return await _collection.FindOneAndUpdateAsync(
+                x => x.Id == paymentId,
+                update,
+                new FindOneAndUpdateOptions<Payment> { ReturnDocument = ReturnDocument.After },
+                cancellationToken);
         }
 
         public async Task<Payment?> UpdateStatusAsync(
@@ -103,26 +131,6 @@ namespace MirrorBot.Worker.Data.Repositories.Implementations
                 x => x.Id == paymentId,
                 update,
                 cancellationToken: cancellationToken);
-        }
-
-        public async Task<Payment?> UpdateYookassaDataAsync(
-            ObjectId paymentId,
-            string yookassaPaymentId,
-            string? confirmationUrl,
-            string? metadata,
-            CancellationToken cancellationToken = default)
-        {
-            var update = Builders<Payment>.Update
-                .Set(x => x.YookassaPaymentId, yookassaPaymentId)
-                .Set(x => x.ConfirmationUrl, confirmationUrl)
-                .Set(x => x.Metadata, metadata)
-                .Set(x => x.UpdatedAtUtc, DateTime.UtcNow);
-
-            return await _collection.FindOneAndUpdateAsync(
-                x => x.Id == paymentId,
-                update,
-                new FindOneAndUpdateOptions<Payment> { ReturnDocument = ReturnDocument.After },
-                cancellationToken);
         }
     }
 }

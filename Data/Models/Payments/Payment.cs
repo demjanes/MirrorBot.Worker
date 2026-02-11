@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace MirrorBot.Worker.Data.Models.Payments
 {
     /// <summary>
-    /// Платеж пользователя.
+    /// Универсальный платеж пользователя.
     /// </summary>
     public sealed class Payment : BaseEntity
     {
@@ -35,16 +35,29 @@ namespace MirrorBot.Worker.Data.Models.Payments
         public SubscriptionType SubscriptionType { get; set; }
 
         /// <summary>
-        /// Сумма платежа в рублях.
+        /// Сумма платежа.
         /// </summary>
-        [BsonElement("amountRub")]
-        public decimal AmountRub { get; set; }
+        [BsonElement("amount")]
+        public decimal Amount { get; set; }
 
         /// <summary>
-        /// ID платежа в ЮКассе.
+        /// Валюта платежа.
         /// </summary>
-        [BsonElement("yookassaPaymentId")]
-        public string YookassaPaymentId { get; set; } = string.Empty;
+        [BsonElement("currency")]
+        public string Currency { get; set; } = "RUB";
+
+        /// <summary>
+        /// Провайдер платежа (YooKassa, Stripe, Crypto и т.д.).
+        /// </summary>
+        [BsonElement("provider")]
+        [BsonRepresentation(BsonType.String)]
+        public PaymentProvider Provider { get; set; }
+
+        /// <summary>
+        /// ID платежа во внешней системе (уникальный для каждого провайдера).
+        /// </summary>
+        [BsonElement("externalPaymentId")]
+        public string ExternalPaymentId { get; set; } = string.Empty;
 
         /// <summary>
         /// Статус платежа.
@@ -54,10 +67,10 @@ namespace MirrorBot.Worker.Data.Models.Payments
         public PaymentStatus Status { get; set; }
 
         /// <summary>
-        /// URL для оплаты (confirmation URL от ЮКассы).
+        /// URL для оплаты (если есть).
         /// </summary>
-        [BsonElement("confirmationUrl")]
-        public string? ConfirmationUrl { get; set; }
+        [BsonElement("paymentUrl")]
+        public string? PaymentUrl { get; set; }
 
         /// <summary>
         /// Дата последнего обновления статуса.
@@ -78,10 +91,10 @@ namespace MirrorBot.Worker.Data.Models.Payments
         public long? ReferrerUserId { get; set; }
 
         /// <summary>
-        /// Сумма реферального вознаграждения (25% от AmountRub).
+        /// Сумма реферального вознаграждения.
         /// </summary>
-        [BsonElement("referralRewardRub")]
-        public decimal? ReferralRewardRub { get; set; }
+        [BsonElement("referralRewardAmount")]
+        public decimal? ReferralRewardAmount { get; set; }
 
         /// <summary>
         /// Было ли начислено реферальное вознаграждение.
@@ -90,9 +103,16 @@ namespace MirrorBot.Worker.Data.Models.Payments
         public bool ReferralRewardProcessed { get; set; }
 
         /// <summary>
-        /// Метаданные от ЮКассы (JSON).
+        /// Дополнительные данные от провайдера (JSON).
+        /// Хранит специфичную для провайдера информацию.
+        /// </summary>
+        [BsonElement("providerData")]
+        public string? ProviderData { get; set; }
+
+        /// <summary>
+        /// Метаданные платежа (для внутреннего использования).
         /// </summary>
         [BsonElement("metadata")]
-        public string? Metadata { get; set; }
+        public Dictionary<string, string>? Metadata { get; set; }
     }
 }

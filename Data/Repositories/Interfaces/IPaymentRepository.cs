@@ -11,10 +11,10 @@ namespace MirrorBot.Worker.Data.Repositories.Interfaces
     public interface IPaymentRepository : IBaseRepository<Payment>
     {
         /// <summary>
-        /// Получить платеж по ID ЮКассы.
+        /// Получить платеж по внешнему ID (любого провайдера).
         /// </summary>
-        Task<Payment?> GetByYookassaIdAsync(
-            string yookassaPaymentId,
+        Task<Payment?> GetByExternalIdAsync(
+            string externalPaymentId,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -25,13 +25,13 @@ namespace MirrorBot.Worker.Data.Repositories.Interfaces
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Обновить YooKassa данные после создания платежа.
+        /// Обновить данные провайдера после создания платежа.
         /// </summary>
-        Task<Payment?> UpdateYookassaDataAsync(
+        Task<Payment?> UpdateExternalDataAsync(
             ObjectId paymentId,
-            string yookassaPaymentId,
-            string? confirmationUrl,
-            string? metadata,
+            string externalPaymentId,
+            string? paymentUrl,
+            string? providerData,
             CancellationToken cancellationToken = default);
 
         /// <summary>

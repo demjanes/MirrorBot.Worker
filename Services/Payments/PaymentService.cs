@@ -1,8 +1,9 @@
 ﻿using Microsoft.Extensions.Options;
 using MirrorBot.Worker.Configs;
+using MirrorBot.Worker.Configs.Payments;
 using MirrorBot.Worker.Data.Models.Payments;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
-using MirrorBot.Worker.Services.Payments.Models;
+using MirrorBot.Worker.Services.Payments.Providers;
 using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.Subscr;
 using MongoDB.Bson;
@@ -23,11 +24,10 @@ namespace MirrorBot.Worker.Services.Payments
         private readonly ISubscriptionService _subscriptionService;
         private readonly IReferralService _referralService;
         private readonly IUsersRepository _usersRepo;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly YooKassaConfiguration _config;
+        private readonly PaymentProviderFactory _providerFactory;
+        private readonly PaymentConfiguration _paymentConfig;
+        private readonly ReferralConfiguration _referralConfig;
         private readonly ILogger<PaymentService> _logger;
-
-        private const string YooKassaApiUrl = "https://api.yookassa.ru/v3/payments";
 
         public PaymentService(
             IPaymentRepository paymentRepo,
@@ -35,8 +35,9 @@ namespace MirrorBot.Worker.Services.Payments
             ISubscriptionService subscriptionService,
             IReferralService referralService,
             IUsersRepository usersRepo,
-            IHttpClientFactory httpClientFactory,
-            IOptions<YooKassaConfiguration> config,
+            PaymentProviderFactory providerFactory,
+            IOptions<PaymentConfiguration> paymentConfig,
+            IOptions<ReferralConfiguration> referralConfig,
             ILogger<PaymentService> logger)
         {
             _paymentRepo = paymentRepo;
@@ -44,15 +45,17 @@ namespace MirrorBot.Worker.Services.Payments
             _subscriptionService = subscriptionService;
             _referralService = referralService;
             _usersRepo = usersRepo;
-            _httpClientFactory = httpClientFactory;
-            _config = config.Value;
+            _providerFactory = providerFactory;
+            _paymentConfig = paymentConfig.Value;
+            _referralConfig = referralConfig.Value;
             _logger = logger;
         }
 
         public async Task<(bool Success, string? PaymentUrl, string? ErrorMessage)> CreatePaymentAsync(
-     long userId,
-     ObjectId planId,
-     CancellationToken cancellationToken = default)
+            long userId,
+            ObjectId planId,
+            PaymentProvider? provider = null,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -68,15 +71,18 @@ namespace MirrorBot.Worker.Services.Payments
                     return (false, null, "Тарифный план неактивен.");
                 }
 
+                // Получаем провайдер
+                var paymentProvider = _providerFactory.GetProvider(provider);
+
                 // Проверяем, есть ли реферер
                 var user = await _usersRepo.GetByTelegramIdAsync(userId, cancellationToken);
                 long? referrerId = user?.ReferrerOwnerTgUserId;
 
-                // Вычисляем реферальное вознаграждение (25%)
+                // Вычисляем реферальное вознаграждение
                 decimal? referralReward = null;
                 if (referrerId.HasValue)
                 {
-                    referralReward = plan.PriceRub * (_config.ReferralRewardPercent / 100m);
+                    referralReward = plan.PriceRub * _referralConfig.ReferralPercentage;
                 }
 
                 // Создаем запись о платеже в БД
@@ -85,61 +91,61 @@ namespace MirrorBot.Worker.Services.Payments
                     UserId = userId,
                     PlanId = planId,
                     SubscriptionType = plan.Type,
-                    AmountRub = plan.PriceRub,
+                    Amount = plan.PriceRub,
+                    Currency = "RUB",
+                    Provider = paymentProvider.ProviderType,
                     Status = PaymentStatus.Pending,
                     ReferrerUserId = referrerId,
-                    ReferralRewardRub = referralReward,
-                    ReferralRewardProcessed = false
+                    ReferralRewardAmount = referralReward,
+                    ReferralRewardProcessed = false,
+                    Metadata = new Dictionary<string, string>
+                    {
+                        { "plan_name", plan.Name },
+                        { "plan_duration_days", plan.DurationDays.ToString() }
+                    }
                 };
 
                 payment = await _paymentRepo.CreateAsync(payment, cancellationToken);
 
-                // Создаем платеж в ЮКассе
-                var yookassaRequest = new CreatePaymentRequest
+                // Создаем платеж через провайдер
+                var providerRequest = new CreatePaymentRequest
                 {
-                    Amount = new AmountDto
-                    {
-                        Value = plan.PriceRub.ToString("F2"),
-                        Currency = "RUB"
-                    },
-                    Confirmation = new ConfirmationDto
-                    {
-                        Type = "redirect",
-                        ReturnUrl = _config.ReturnUrl
-                    },
-                    Capture = true,
+                    Amount = plan.PriceRub,
+                    Currency = "RUB",
                     Description = $"Оплата подписки: {plan.Name}",
+                    ReturnUrl = "https://t.me/your_bot", // TODO: Из конфига
                     Metadata = new Dictionary<string, string>
-            {
-                { "payment_id", payment.Id.ToString() },
-                { "user_id", userId.ToString() },
-                { "plan_id", planId.ToString() }
-            }
+                    {
+                        { "payment_id", payment.Id.ToString() },
+                        { "user_id", userId.ToString() },
+                        { "plan_id", planId.ToString() }
+                    }
                 };
 
-                var yookassaResponse = await CreateYooKassaPaymentAsync(yookassaRequest, cancellationToken);
+                var providerResult = await paymentProvider.CreatePaymentAsync(providerRequest, cancellationToken);
 
-                if (yookassaResponse == null)
+                if (!providerResult.Success)
                 {
-                    return (false, null, "Ошибка при создании платежа в ЮКассе.");
+                    return (false, null, providerResult.ErrorMessage ?? "Ошибка при создании платежа.");
                 }
 
-                // ✅ ИСПРАВЛЕНО: Обновление через репозиторий
-                await _paymentRepo.UpdateYookassaDataAsync(
+                // ✅ ОБНОВЛЕНО: Универсальный метод вместо UpdateYookassaDataAsync
+                await _paymentRepo.UpdateExternalDataAsync(
                     payment.Id,
-                    yookassaResponse.Id,
-                    yookassaResponse.Confirmation?.ConfirmationUrl,
-                    JsonSerializer.Serialize(yookassaResponse.Metadata),
+                    providerResult.ExternalPaymentId!,
+                    providerResult.PaymentUrl,
+                    providerResult.ProviderData,
                     cancellationToken);
 
                 _logger.LogInformation(
-                    "Payment created: PaymentId={PaymentId}, YooKassaId={YooKassaId}, UserId={UserId}, Amount={Amount}₽",
+                    "Payment created: PaymentId={PaymentId}, Provider={Provider}, ExternalId={ExternalId}, UserId={UserId}, Amount={Amount}₽",
                     payment.Id,
-                    yookassaResponse.Id,
+                    paymentProvider.ProviderType,
+                    providerResult.ExternalPaymentId,
                     userId,
                     plan.PriceRub);
 
-                return (true, yookassaResponse.Confirmation?.ConfirmationUrl, null);
+                return (true, providerResult.PaymentUrl, null);
             }
             catch (Exception ex)
             {
@@ -148,29 +154,36 @@ namespace MirrorBot.Worker.Services.Payments
             }
         }
 
-
         public async Task<bool> ProcessWebhookAsync(
-            string webhookJson,
+            PaymentProvider provider,
+            string webhookData,
             CancellationToken cancellationToken = default)
         {
             try
             {
-                var webhook = JsonSerializer.Deserialize<YooKassaWebhook>(webhookJson);
+                // Получаем провайдер
+                var paymentProvider = _providerFactory.GetProvider(provider);
 
-                if (webhook == null || webhook.Event != "payment.succeeded")
+                // Обрабатываем webhook через провайдер
+                var webhookResult = await paymentProvider.ProcessWebhookAsync(webhookData, cancellationToken);
+
+                if (!webhookResult.Success || string.IsNullOrEmpty(webhookResult.ExternalPaymentId))
                 {
-                    _logger.LogInformation("Webhook ignored: Event={Event}", webhook?.Event);
+                    _logger.LogWarning("Webhook processing failed: {Error}", webhookResult.ErrorMessage);
                     return false;
                 }
 
-                var yookassaPaymentId = webhook.Object.Id;
-
                 // Ищем платеж в БД
-                var payment = await _paymentRepo.GetByYookassaIdAsync(yookassaPaymentId, cancellationToken);
+                var payment = await _paymentRepo.GetByExternalIdAsync(
+                    webhookResult.ExternalPaymentId,
+                    cancellationToken);
 
                 if (payment == null)
                 {
-                    _logger.LogWarning("Payment not found: YooKassaId={YooKassaId}", yookassaPaymentId);
+                    _logger.LogWarning(
+                        "Payment not found: Provider={Provider}, ExternalId={ExternalId}",
+                        provider,
+                        webhookResult.ExternalPaymentId);
                     return false;
                 }
 
@@ -184,45 +197,21 @@ namespace MirrorBot.Worker.Services.Payments
                 // Обновляем статус платежа
                 await _paymentRepo.UpdateStatusAsync(
                     payment.Id,
-                    PaymentStatus.Succeeded,
-                    DateTime.UtcNow,
+                    webhookResult.Status,
+                    webhookResult.PaidAtUtc,
                     cancellationToken);
 
-                _logger.LogInformation(
-                    "Payment succeeded: PaymentId={PaymentId}, UserId={UserId}, Amount={Amount}₽",
-                    payment.Id,
-                    payment.UserId,
-                    payment.AmountRub);
-
-                // Активируем подписку
-                var (success, errorMessage) = await _subscriptionService.UpgradeToPremiumAsync(
-                    payment.UserId,
-                    payment.SubscriptionType,
-                    payment.YookassaPaymentId,
-                    cancellationToken);
-
-                if (!success)
+                // Если платеж успешен - активируем подписку и обрабатываем реферал
+                if (webhookResult.Status == PaymentStatus.Succeeded)
                 {
-                    _logger.LogError(
-                        "Failed to activate subscription: PaymentId={PaymentId}, Error={Error}",
-                        payment.Id,
-                        errorMessage);
-                    return false;
-                }
-
-                // Обрабатываем реферальное вознаграждение
-                if (payment.ReferrerUserId.HasValue &&
-                    payment.ReferralRewardRub.HasValue &&
-                    !payment.ReferralRewardProcessed)
-                {
-                    await ProcessReferralRewardAsync(payment, cancellationToken);
+                    await ProcessSuccessfulPaymentAsync(payment, cancellationToken);
                 }
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing webhook");
+                _logger.LogError(ex, "Error processing webhook from {Provider}", provider);
                 return false;
             }
         }
@@ -235,6 +224,44 @@ namespace MirrorBot.Worker.Services.Payments
         }
 
         /// <summary>
+        /// Обработка успешного платежа.
+        /// </summary>
+        private async Task ProcessSuccessfulPaymentAsync(
+            Payment payment,
+            CancellationToken cancellationToken)
+        {
+            _logger.LogInformation(
+                "Processing successful payment: PaymentId={PaymentId}, UserId={UserId}, Amount={Amount}₽",
+                payment.Id,
+                payment.UserId,
+                payment.Amount);
+
+            // Активируем подписку
+            var (success, errorMessage) = await _subscriptionService.UpgradeToPremiumAsync(
+                payment.UserId,
+                payment.SubscriptionType,
+                payment.ExternalPaymentId,
+                cancellationToken);
+
+            if (!success)
+            {
+                _logger.LogError(
+                    "Failed to activate subscription: PaymentId={PaymentId}, Error={Error}",
+                    payment.Id,
+                    errorMessage);
+                return;
+            }
+
+            // Обрабатываем реферальное вознаграждение
+            if (payment.ReferrerUserId.HasValue &&
+                payment.ReferralRewardAmount.HasValue &&
+                !payment.ReferralRewardProcessed)
+            {
+                await ProcessReferralRewardAsync(payment, cancellationToken);
+            }
+        }
+
+        /// <summary>
         /// Обработка реферального вознаграждения.
         /// </summary>
         private async Task ProcessReferralRewardAsync(
@@ -243,18 +270,19 @@ namespace MirrorBot.Worker.Services.Payments
         {
             try
             {
-                if (!payment.ReferrerUserId.HasValue || !payment.ReferralRewardRub.HasValue)
+                if (!payment.ReferrerUserId.HasValue || !payment.ReferralRewardAmount.HasValue)
                     return;
 
                 var referrerId = payment.ReferrerUserId.Value;
-                var rewardAmount = payment.ReferralRewardRub.Value;
+                var rewardAmount = payment.ReferralRewardAmount.Value;
 
-                // ✅ ИСПРАВЛЕНО: Используем правильный метод
+                // Начисляем вознаграждение через ReferralService
                 await _referralService.ProcessReferralPaymentAsync(
                     referrerId,
                     payment.UserId,
-                    payment.AmountRub,
+                    payment.Amount,
                     rewardAmount,
+                    payment.ExternalPaymentId,
                     cancellationToken);
 
                 // Отмечаем, что вознаграждение обработано
@@ -269,52 +297,6 @@ namespace MirrorBot.Worker.Services.Payments
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing referral reward for payment {PaymentId}", payment.Id);
-            }
-        }
-
-        /// <summary>
-        /// Создание платежа через API ЮКассы.
-        /// </summary>
-        private async Task<CreatePaymentResponse?> CreateYooKassaPaymentAsync(
-            CreatePaymentRequest request,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                var httpClient = _httpClientFactory.CreateClient();
-
-                // Basic Auth: ShopId:SecretKey
-                var authValue = Convert.ToBase64String(
-                    Encoding.ASCII.GetBytes($"{_config.ShopId}:{_config.SecretKey}"));
-
-                httpClient.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Basic", authValue);
-
-                // Idempotence-Key для безопасного повтора запросов
-                httpClient.DefaultRequestHeaders.Add("Idempotence-Key", Guid.NewGuid().ToString());
-
-                var json = JsonSerializer.Serialize(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await httpClient.PostAsync(YooKassaApiUrl, content, cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError(
-                        "YooKassa API error: StatusCode={StatusCode}, Response={Response}",
-                        response.StatusCode,
-                        errorContent);
-                    return null;
-                }
-
-                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-                return JsonSerializer.Deserialize<CreatePaymentResponse>(responseJson);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error calling YooKassa API");
-                return null;
             }
         }
     }

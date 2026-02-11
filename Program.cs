@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Options;
 using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
+using MirrorBot.Worker.Configs.Payments;
 using MirrorBot.Worker.Data.Repositories.Implementations;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Data.Seeders;
@@ -14,6 +15,8 @@ using MirrorBot.Worker.Services.AI.Interfaces;
 using MirrorBot.Worker.Services.AI.Providers.YandexGPT;
 using MirrorBot.Worker.Services.English;
 using MirrorBot.Worker.Services.Payments;
+using MirrorBot.Worker.Services.Payments.Providers;
+using MirrorBot.Worker.Services.Payments.Providers.YooKassa;
 using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.Subscr;
 using MirrorBot.Worker.Services.TokenEncryption;
@@ -35,6 +38,8 @@ try
     builder.Services.Configure<ReferralConfiguration>(builder.Configuration.GetSection(ReferralConfiguration.SectionName));
     builder.Services.Configure<AIConfiguration>(builder.Configuration.GetSection(AIConfiguration.SectionName));
     builder.Services.Configure<SpeechConfiguration>(builder.Configuration.GetSection(SpeechConfiguration.SectionName));
+
+    builder.Services.Configure<PaymentConfiguration>(builder.Configuration.GetSection(PaymentConfiguration.SectionName));
     builder.Services.Configure<YooKassaConfiguration>(builder.Configuration.GetSection(YooKassaConfiguration.SectionName));
 
     // ============ HttpClient для AI провайдеров ============
@@ -111,6 +116,11 @@ try
     // ============ Referral services (Scoped - зависят от репозиториев) ============
     builder.Services.AddScoped<IReferralNotificationService, ReferralNotificationService>();
     builder.Services.AddScoped<IReferralService, ReferralService>();
+
+    // ✅ ДОБАВЬ ЭТУ СЕКЦИЮ
+    // ============ Payment providers (Scoped - используют HttpClient и конфиги) ============
+    builder.Services.AddScoped<YooKassaPaymentProvider>();
+    builder.Services.AddScoped<PaymentProviderFactory>();
 
     // ============ Payment services (Scoped - зависят от репозиториев) ============
     builder.Services.AddScoped<IPaymentService, PaymentService>();

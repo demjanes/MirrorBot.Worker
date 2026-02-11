@@ -470,7 +470,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                         var (success, paymentUrl, errorMessage) = await _paymentService.CreatePaymentAsync(
                             userId,
                             planId,
-                            ct);
+                            provider: null,  // ✅ Используем провайдер по умолчанию из конфига
+                            cancellationToken: ct);
 
                         if (!success)
                         {

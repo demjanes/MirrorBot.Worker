@@ -44,10 +44,10 @@ namespace MirrorBot.Worker.Services.Referral
         }
 
         public async Task RegisterReferralAsync(
-     long userId,
-     long? referrerOwnerTgUserId,
-     ObjectId? referrerMirrorBotId,
-     CancellationToken cancellationToken = default)
+            long userId,
+            long? referrerOwnerTgUserId,
+            ObjectId? referrerMirrorBotId,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -92,7 +92,6 @@ namespace MirrorBot.Worker.Services.Referral
                     userId);
             }
         }
-
 
         public async Task OnPaymentSucceededAsync(
             long payerTgUserId,
@@ -281,11 +280,15 @@ namespace MirrorBot.Worker.Services.Referral
             }
         }
 
+        /// <summary>
+        /// Обработать реферальный платеж (начислить вознаграждение и создать транзакцию).
+        /// </summary>
         public async Task ProcessReferralPaymentAsync(
             long referrerId,
             long referralUserId,
             decimal paymentAmount,
             decimal rewardAmount,
+            string? paymentId = null,
             CancellationToken cancellationToken = default)
         {
             try
@@ -317,8 +320,8 @@ namespace MirrorBot.Worker.Services.Referral
                     Amount = rewardAmount,
                     Currency = "RUB",
                     Kind = ReferralTransactionKind.Accrual,
-                    PaymentId = null, // Можно передать ID платежа из Payment, если нужно
-                    Source = "YooKassa",
+                    PaymentId = paymentId, // ✅ ID платежа из внешней системы
+                    Source = "Payment", // Универсальный источник
                     Description = $"Реферальный бонус за оплату подписки на сумму {paymentAmount:F2}₽"
                 };
 
@@ -327,7 +330,7 @@ namespace MirrorBot.Worker.Services.Referral
                 // Обновляем баланс и доход
                 await _statsRepo.AddEarningsAsync(referrerId, rewardAmount, cancellationToken);
 
-                // Отправляем уведомление рефереру (правильное имя метода)
+                // Отправляем уведомление рефереру
                 await _notificationService.NotifyReferralEarningAsync(
                     referrerId,
                     referralUserId,
@@ -337,11 +340,12 @@ namespace MirrorBot.Worker.Services.Referral
 
                 _logger.LogInformation(
                     "Referral reward processed: ReferrerId={ReferrerId}, ReferralUserId={ReferralUserId}, " +
-                    "PaymentAmount={PaymentAmount}₽, RewardAmount={RewardAmount}₽",
+                    "PaymentAmount={PaymentAmount}₽, RewardAmount={RewardAmount}₽, PaymentId={PaymentId}",
                     referrerId,
                     referralUserId,
                     paymentAmount,
-                    rewardAmount);
+                    rewardAmount,
+                    paymentId);
             }
             catch (Exception ex)
             {
@@ -354,5 +358,4 @@ namespace MirrorBot.Worker.Services.Referral
             }
         }
     }
-
 }
