@@ -27,11 +27,15 @@ namespace MirrorBot.Worker.Flow.Routes
             public const string RefTxt_Ru = "💰 Реферальная программа";
             public const string RefTxt_En = "💰 Referral Program";
 
+            public const string AddBot = "/addbot";
+
             public const string Subscription = "/sub";
             public const string SubscriptionTxt_Ru = "💎 Подписка";
             public const string SubscriptionTxt_En = "💎 Subscription";
 
-            public const string AddBot = "/addbot";
+            public const string Payments = "/payments";
+            public const string PaymentsTxt_Ru = "💳 Мои платежи";
+            public const string PaymentsTxt_En = "💳 My Payments";
         }
 
         public static class Callbacks
@@ -161,6 +165,9 @@ namespace MirrorBot.Worker.Flow.Routes
 
                 public static readonly string CancelNoAction = "cancel_no";
                 public static readonly string CancelNo = CbCodec.Pack(_section, CancelNoAction);
+
+                public static readonly string PaymentsAction = "payments";
+                public static readonly string Payments = CbCodec.Pack(_section, PaymentsAction);
             }
         }
     }

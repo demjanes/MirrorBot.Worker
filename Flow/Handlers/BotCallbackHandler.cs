@@ -409,16 +409,36 @@ namespace MirrorBot.Worker.Flow.Handlers
                         return;
                     }
 
+                // ✅ ДОЛЖЕН БЫТЬ ТОЛЬКО ЭТОТ case для BuyAction
                 case string s when s.Equals(BotRoutes.Callbacks.Subscription.BuyAction, StringComparison.OrdinalIgnoreCase):
                     {
                         var args = cb.Args ?? Array.Empty<string>();
                         if (!TryGetObjectId(args, 0, out var planId))
                             return;
 
-                        // TODO: Интеграция с ЮКасса (следующий этап)
-                        t.AnswerText = t.AnswerLang == UiLang.En
-                            ? "💳 Payment integration coming soon..."
-                            : "💳 Интеграция оплаты скоро...";
+                        // Получаем username бота из контекста
+                        var botUsername = t.BotContext?.BotUsername ?? "unknown_bot";
+
+                        // Создаем платеж с указанием бота
+                        var (success, paymentUrl, errorMessage) = await _paymentService.CreatePaymentAsync(
+                            userId,
+                            planId,
+                            botUsername,
+                            provider: null,
+                            cancellationToken: ct);
+
+                        if (!success)
+                        {
+                            t.AnswerText = t.AnswerLang == UiLang.En
+                                ? $"❌ Error: {errorMessage}"
+                                : $"❌ Ошибка: {errorMessage}";
+                            await SendOrEditAsync(t, ct);
+                            return;
+                        }
+
+                        // Используем BotUi для текста и клавиатуры
+                        t.AnswerText = BotUi.Text.PaymentLink(t);
+                        t.AnswerKeyboard = BotUi.Keyboards.PaymentLink(t, paymentUrl!);
                         await SendOrEditAsync(t, ct);
                         return;
                     }
@@ -466,11 +486,15 @@ namespace MirrorBot.Worker.Flow.Handlers
                         if (!TryGetObjectId(args, 0, out var planId))
                             return;
 
-                        // Создаем платеж
+                        // ✅ Получаем username бота из контекста
+                        var botUsername = t.BotContext?.BotUsername ?? "unknown_bot";
+
+                        // Создаем платеж с указанием бота
                         var (success, paymentUrl, errorMessage) = await _paymentService.CreatePaymentAsync(
                             userId,
                             planId,
-                            provider: null,  // ✅ Используем провайдер по умолчанию из конфига
+                            botUsername,  // ✅ Передаем username
+                            provider: null,
                             cancellationToken: ct);
 
                         if (!success)
@@ -482,9 +506,18 @@ namespace MirrorBot.Worker.Flow.Handlers
                             return;
                         }
 
-                        // ✅ ИСПРАВЛЕНО: Используем BotUi
+                        // Используем BotUi для текста и клавиатуры
                         t.AnswerText = BotUi.Text.PaymentLink(t);
                         t.AnswerKeyboard = BotUi.Keyboards.PaymentLink(t, paymentUrl!);
+                        await SendOrEditAsync(t, ct);
+                        return;
+                    }
+                case var cmd when cmd.Equals(BotRoutes.Callbacks.Subscription.PaymentsAction, StringComparison.OrdinalIgnoreCase):
+                    {
+                        var payments = await _paymentService.GetUserPaymentsAsync(userId, ct);
+
+                        t.AnswerText = BotUi.Text.UserPayments(t, payments);
+                        t.AnswerKeyboard = BotUi.Keyboards.UserPayments(t);
                         await SendOrEditAsync(t, ct);
                         return;
                     }

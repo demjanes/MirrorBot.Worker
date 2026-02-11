@@ -19,17 +19,7 @@ namespace MirrorBot.Worker.Configs.Payments
         /// Секретный ключ для API.
         /// </summary>
         public string SecretKey { get; set; } = string.Empty;
-
-        /// <summary>
-        /// URL для возврата после успешной оплаты.
-        /// </summary>
-        public string ReturnUrl { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Процент реферального вознаграждения (по умолчанию 25%).
-        /// </summary>
-        public decimal ReferralRewardPercent { get; set; } = 25m;
-
+                             
         /// <summary>
         /// Включен ли тестовый режим.
         /// </summary>

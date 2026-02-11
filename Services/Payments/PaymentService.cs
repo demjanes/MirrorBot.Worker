@@ -1,9 +1,13 @@
 ﻿using Microsoft.Extensions.Options;
+using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Configs.Payments;
+using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Models.Payments;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
+using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services.Payments.Providers;
+using MirrorBot.Worker.Services.Payments.Providers.YooKassa;
 using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.Subscr;
 using MongoDB.Bson;
@@ -14,6 +18,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Telegram.Bot;
+using Telegram.Bot.Types.Enums;
 
 namespace MirrorBot.Worker.Services.Payments
 {
@@ -28,6 +34,7 @@ namespace MirrorBot.Worker.Services.Payments
         private readonly PaymentConfiguration _paymentConfig;
         private readonly ReferralConfiguration _referralConfig;
         private readonly ILogger<PaymentService> _logger;
+        private readonly IBotClientResolver _botClientResolver;
 
         public PaymentService(
             IPaymentRepository paymentRepo,
@@ -36,6 +43,7 @@ namespace MirrorBot.Worker.Services.Payments
             IReferralService referralService,
             IUsersRepository usersRepo,
             PaymentProviderFactory providerFactory,
+            IBotClientResolver botClientResolver,
             IOptions<PaymentConfiguration> paymentConfig,
             IOptions<ReferralConfiguration> referralConfig,
             ILogger<PaymentService> logger)
@@ -46,16 +54,18 @@ namespace MirrorBot.Worker.Services.Payments
             _referralService = referralService;
             _usersRepo = usersRepo;
             _providerFactory = providerFactory;
+            _botClientResolver = botClientResolver;
             _paymentConfig = paymentConfig.Value;
             _referralConfig = referralConfig.Value;
             _logger = logger;
         }
 
         public async Task<(bool Success, string? PaymentUrl, string? ErrorMessage)> CreatePaymentAsync(
-            long userId,
-            ObjectId planId,
-            PaymentProvider? provider = null,
-            CancellationToken cancellationToken = default)
+     long userId,
+     ObjectId planId,
+     string botUsername,  // ✅ Добавлен параметр
+     PaymentProvider? provider = null,
+     CancellationToken cancellationToken = default)
         {
             try
             {
@@ -99,13 +109,17 @@ namespace MirrorBot.Worker.Services.Payments
                     ReferralRewardAmount = referralReward,
                     ReferralRewardProcessed = false,
                     Metadata = new Dictionary<string, string>
-                    {
-                        { "plan_name", plan.Name },
-                        { "plan_duration_days", plan.DurationDays.ToString() }
-                    }
+            {
+                { "plan_name", plan.Name },
+                { "plan_duration_days", plan.DurationDays.ToString() },
+                { "bot_username", botUsername }  // ✅ Сохраняем username бота
+            }
                 };
 
                 payment = await _paymentRepo.CreateAsync(payment, cancellationToken);
+
+                // ✅ Формируем ReturnUrl для конкретного бота
+                var returnUrl = $"https://t.me/{botUsername}";
 
                 // Создаем платеж через провайдер
                 var providerRequest = new CreatePaymentRequest
@@ -113,13 +127,14 @@ namespace MirrorBot.Worker.Services.Payments
                     Amount = plan.PriceRub,
                     Currency = "RUB",
                     Description = $"Оплата подписки: {plan.Name}",
-                    ReturnUrl = "https://t.me/your_bot", // TODO: Из конфига
+                    ReturnUrl = returnUrl,  // ✅ Динамический URL
                     Metadata = new Dictionary<string, string>
-                    {
-                        { "payment_id", payment.Id.ToString() },
-                        { "user_id", userId.ToString() },
-                        { "plan_id", planId.ToString() }
-                    }
+            {
+                { "payment_id", payment.Id.ToString() },
+                { "user_id", userId.ToString() },
+                { "plan_id", planId.ToString() },
+                { "bot_username", botUsername }  // ✅ Передаем в провайдер
+            }
                 };
 
                 var providerResult = await paymentProvider.CreatePaymentAsync(providerRequest, cancellationToken);
@@ -129,7 +144,7 @@ namespace MirrorBot.Worker.Services.Payments
                     return (false, null, providerResult.ErrorMessage ?? "Ошибка при создании платежа.");
                 }
 
-                // ✅ ОБНОВЛЕНО: Универсальный метод вместо UpdateYookassaDataAsync
+                // Обновляем запись платежа
                 await _paymentRepo.UpdateExternalDataAsync(
                     payment.Id,
                     providerResult.ExternalPaymentId!,
@@ -138,12 +153,13 @@ namespace MirrorBot.Worker.Services.Payments
                     cancellationToken);
 
                 _logger.LogInformation(
-                    "Payment created: PaymentId={PaymentId}, Provider={Provider}, ExternalId={ExternalId}, UserId={UserId}, Amount={Amount}₽",
+                    "Payment created: PaymentId={PaymentId}, Provider={Provider}, ExternalId={ExternalId}, UserId={UserId}, Amount={Amount}₽, Bot=@{BotUsername}",
                     payment.Id,
                     paymentProvider.ProviderType,
                     providerResult.ExternalPaymentId,
                     userId,
-                    plan.PriceRub);
+                    plan.PriceRub,
+                    botUsername);
 
                 return (true, providerResult.PaymentUrl, null);
             }
@@ -153,6 +169,7 @@ namespace MirrorBot.Worker.Services.Payments
                 return (false, null, "Произошла ошибка при создании платежа.");
             }
         }
+
 
         public async Task<bool> ProcessWebhookAsync(
             PaymentProvider provider,
@@ -222,7 +239,6 @@ namespace MirrorBot.Worker.Services.Payments
         {
             return await _paymentRepo.GetByUserIdAsync(userId, cancellationToken);
         }
-
         /// <summary>
         /// Обработка успешного платежа.
         /// </summary>
@@ -258,6 +274,74 @@ namespace MirrorBot.Worker.Services.Payments
                 !payment.ReferralRewardProcessed)
             {
                 await ProcessReferralRewardAsync(payment, cancellationToken);
+            }
+
+            // ✅ Отправляем уведомление пользователю
+            await SendPaymentNotificationAsync(payment, cancellationToken);
+        }
+
+        /// <summary>
+        /// Отправить уведомление о платеже пользователю.
+        /// </summary>
+        private async Task SendPaymentNotificationAsync(
+            Payment payment,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Получаем username бота из метаданных
+                var botUsername = payment.Metadata?.GetValueOrDefault("bot_username") ?? "unknown_bot";
+
+                // Получаем клиент бота
+                var botClient = _botClientResolver.ResolveBotByUsername(botUsername);
+                if (botClient == null)
+                {
+                    _logger.LogWarning(
+                        "Bot client not found for username: @{BotUsername}, PaymentId={PaymentId}",
+                        botUsername,
+                        payment.Id);
+                    return;
+                }
+
+                // Получаем язык пользователя
+                var user = await _usersRepo.GetByTelegramIdAsync(payment.UserId, cancellationToken);
+                var lang = user?.PreferredLang ?? UiLang.Ru;
+
+                // Получаем план
+                var plan = await _planRepo.GetByIdAsync(payment.PlanId, cancellationToken);
+                if (plan == null)
+                {
+                    _logger.LogWarning("Plan not found for payment {PaymentId}", payment.Id);
+                    return;
+                }
+
+                // Формируем текст
+                var expiresAt = DateTime.UtcNow.AddDays(plan.DurationDays);
+                var text = BotUi.Text.PaymentSuccessNotification(
+                    lang,
+                    plan.Name,
+                    payment.Amount,
+                    expiresAt);
+
+                // Отправляем
+                await botClient.SendMessage(
+                    chatId: payment.UserId,
+                    text: text,
+                    parseMode: ParseMode.Html,
+                    cancellationToken: cancellationToken);
+
+                _logger.LogInformation(
+                    "Payment notification sent: UserId={UserId}, Bot=@{BotUsername}",
+                    payment.UserId,
+                    botUsername);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error sending payment notification: UserId={UserId}, PaymentId={PaymentId}",
+                    payment.UserId,
+                    payment.Id);
             }
         }
 

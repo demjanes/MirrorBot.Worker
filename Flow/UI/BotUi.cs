@@ -1,5 +1,6 @@
 ﻿using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Models.Core;
+using MirrorBot.Worker.Data.Models.Payments;
 using MirrorBot.Worker.Data.Models.Subscription;
 using MirrorBot.Worker.Flow.Routes;
 using System.Text;
@@ -480,7 +481,7 @@ namespace MirrorBot.Worker.Flow.UI
                         }
                 }
                 return sb.ToString();
-            }        
+            }
             public static string BotEditNotFound(Data.Models.Core.BotTask entity)
             {
                 var sb = new StringBuilder();
@@ -748,32 +749,198 @@ namespace MirrorBot.Worker.Flow.UI
             }
 
 
-
-
             /// <summary>
-            /// Текст с ссылкой на оплату.
+            /// Ссылка на оплату.
             /// </summary>
-            public static string PaymentLink(BotTask entity)
+            public static string PaymentLink(BotTask t)
             {
-                return entity.AnswerLang switch
+                return t.AnswerLang switch
                 {
                     UiLang.En =>
                         "💳 <b>Payment Link</b>\n\n" +
-                        "Click the button below to complete the payment.\n\n" +
-                        "After successful payment, your Premium subscription will be activated automatically.",
+                        "Click the button below to proceed with payment.\n\n" +
+                        "⚠️ The link is valid for 15 minutes.",
+
                     _ =>
-                        "💳 <b>Ссылка для оплаты</b>\n\n" +
-                        "Нажмите на кнопку ниже для завершения оплаты.\n\n" +
-                        "После успешной оплаты ваша Premium подписка будет активирована автоматически."
+                        "💳 <b>Ссылка на оплату</b>\n\n" +
+                        "Нажмите на кнопку ниже, чтобы перейти к оплате.\n\n" +
+                        "⚠️ Ссылка действительна в течение 15 минут."
+                };
+            }
+
+            /// <summary>
+            /// Платеж успешен.
+            /// </summary>
+            public static string PaymentSuccess(BotTask t, string planName, DateTime expiresAt)
+            {
+                var expiresStr = expiresAt.ToString("dd.MM.yyyy HH:mm");
+
+                return t.AnswerLang switch
+                {
+                    UiLang.En =>
+                        "✅ <b>Payment Successful!</b>\n\n" +
+                        $"Your <b>{planName}</b> subscription is now active.\n" +
+                        $"Valid until: <code>{expiresStr}</code>",
+
+                    _ =>
+                        "✅ <b>Оплата прошла успешно!</b>\n\n" +
+                        $"Ваша подписка <b>{planName}</b> активирована.\n" +
+                        $"Действительна до: <code>{expiresStr}</code>"
+                };
+            }
+
+            /// <summary>
+            /// Ошибка платежа.
+            /// </summary>
+            public static string PaymentError(BotTask t, string? errorMessage = null)
+            {
+                var error = string.IsNullOrEmpty(errorMessage) ? "" : $"\n\n<i>{errorMessage}</i>";
+
+                return t.AnswerLang switch
+                {
+                    UiLang.En =>
+                        $"❌ <b>Payment Error</b>{error}\n\n" +
+                        "Please try again or contact support.",
+
+                    _ =>
+                        $"❌ <b>Ошибка оплаты</b>{error}\n\n" +
+                        "Попробуйте ещё раз или обратитесь в поддержку."
                 };
             }
 
 
+            /// <summary>
+            /// Уведомление об успешной оплате.
+            /// </summary>
+            public static string PaymentSuccessNotification(UiLang lang, string planName, decimal amount, DateTime expiresAt)
+            {
+                var expiresStr = expiresAt.ToString("dd.MM.yyyy HH:mm");
+
+                return lang switch
+                {
+                    UiLang.En =>
+                        $"✅ <b>Payment Successful!</b>\n\n" +
+                        $"Your <b>{planName}</b> subscription is now active.\n" +
+                        $"Amount: <b>{amount:F2} ₽</b>\n" +
+                        $"Valid until: <code>{expiresStr}</code>\n\n" +
+                        $"Thank you for your purchase! 🎉",
+
+                    _ =>
+                        $"✅ <b>Оплата прошла успешно!</b>\n\n" +
+                        $"Ваша подписка <b>{planName}</b> активирована.\n" +
+                        $"Сумма: <b>{amount:F2} ₽</b>\n" +
+                        $"Действительна до: <code>{expiresStr}</code>\n\n" +
+                        $"Спасибо за покупку! 🎉"
+                };
+            }
+
+            /// <summary>
+            /// Уведомление об отмене платежа.
+            /// </summary>
+            public static string PaymentCanceledNotification(UiLang lang, decimal amount)
+            {
+                return lang switch
+                {
+                    UiLang.En =>
+                        $"❌ <b>Payment Canceled</b>\n\n" +
+                        $"Your payment of <b>{amount:F2} ₽</b> was canceled.\n\n" +
+                        $"If you want to subscribe, please try again.",
+
+                    _ =>
+                        $"❌ <b>Платеж отменен</b>\n\n" +
+                        $"Ваш платеж на сумму <b>{amount:F2} ₽</b> был отменен.\n\n" +
+                        $"Если хотите оформить подписку, попробуйте снова."
+                };
+            }
+
+            /// <summary>
+            /// Уведомление об ошибке платежа.
+            /// </summary>
+            public static string PaymentFailedNotification(UiLang lang, decimal amount, string? errorMessage = null)
+            {
+                var error = string.IsNullOrEmpty(errorMessage) ? "" : $"\n\n<i>{errorMessage}</i>";
+
+                return lang switch
+                {
+                    UiLang.En =>
+                        $"⚠️ <b>Payment Error</b>\n\n" +
+                        $"There was an error processing your payment of <b>{amount:F2} ₽</b>.{error}\n\n" +
+                        $"Please try again or contact support.",
+
+                    _ =>
+                        $"⚠️ <b>Ошибка платежа</b>\n\n" +
+                        $"Произошла ошибка при обработке платежа на сумму <b>{amount:F2} ₽</b>.{error}\n\n" +
+                        $"Попробуйте снова или обратитесь в поддержку."
+                };
+            }
 
 
+            /// <summary>
+            /// История платежей пользователя.
+            /// </summary>
+            public static string UserPayments(BotTask t, List<Payment> payments)
+            {
+                if (payments.Count == 0)
+                {
+                    return t.AnswerLang switch
+                    {
+                        UiLang.En =>
+                            "💳 <b>Payment History</b>\n\n" +
+                            "You have no payments yet.",
 
+                        _ =>
+                            "💳 <b>История платежей</b>\n\n" +
+                            "У вас пока нет платежей."
+                    };
+                }
 
+                var sb = new StringBuilder();
 
+                sb.AppendLine(t.AnswerLang switch
+                {
+                    UiLang.En => "💳 <b>Payment History</b>\n",
+                    _ => "💳 <b>История платежей</b>\n"
+                });
+
+                foreach (var payment in payments.Take(10)) // Показываем последние 10
+                {
+                    var statusEmoji = payment.Status switch
+                    {
+                        PaymentStatus.Succeeded => "✅",
+                        PaymentStatus.Pending => "⏳",
+                        PaymentStatus.Canceled => "❌",
+                        PaymentStatus.Failed => "⚠️",
+                        _ => "❓"
+                    };
+
+                    var statusText = payment.Status switch
+                    {
+                        PaymentStatus.Succeeded => t.AnswerLang == UiLang.En ? "Paid" : "Оплачен",
+                        PaymentStatus.Pending => t.AnswerLang == UiLang.En ? "Pending" : "Ожидание",
+                        PaymentStatus.Canceled => t.AnswerLang == UiLang.En ? "Canceled" : "Отменен",
+                        PaymentStatus.Failed => t.AnswerLang == UiLang.En ? "Failed" : "Ошибка",
+                        _ => "Unknown"
+                    };
+
+                    var dateStr = payment.CreatedAtUtc.ToString("dd.MM.yyyy HH:mm");
+                    var planName = payment.Metadata?.GetValueOrDefault("plan_name") ?? "Unknown";
+
+                    sb.AppendLine($"{statusEmoji} <b>{planName}</b>");
+                    sb.AppendLine($"   {payment.Amount:F2} ₽ • {statusText}");
+                    sb.AppendLine($"   {dateStr}\n");
+                }
+
+                if (payments.Count > 10)
+                {
+                    sb.AppendLine(t.AnswerLang switch
+                    {
+                        UiLang.En => $"<i>Showing last 10 of {payments.Count} payments</i>",
+                        _ => $"<i>Показаны последние 10 из {payments.Count} платежей</i>"
+                    });
+                }
+
+                return sb.ToString();
+            }
 
 
 
@@ -965,7 +1132,7 @@ namespace MirrorBot.Worker.Flow.UI
             {
                 var kb = new[]
                 {
-                     
+
                      new []
                      {
                          InlineKeyboardButton.WithCallbackData("Мои боты", BotRoutes.Callbacks.Bot.My),
@@ -1040,40 +1207,69 @@ namespace MirrorBot.Worker.Flow.UI
 
 
             /// <summary>
-            /// Главное меню подписки
+            /// Клавиатура информации о подписке.
             /// </summary>
-            public static InlineKeyboardMarkup SubscriptionInfo(BotTask entity, bool isPremium)
+            public static InlineKeyboardMarkup SubscriptionInfo(BotTask t, bool isPremium)
             {
-                var buttons = new List<List<InlineKeyboardButton>>();
+                var upgradeButton = t.AnswerLang switch
+                {
+                    UiLang.En => "⬆️ Upgrade to Premium",
+                    _ => "⬆️ Оформить Premium"
+                };
+
+                var cancelButton = t.AnswerLang switch
+                {
+                    UiLang.En => "❌ Cancel Subscription",
+                    _ => "❌ Отменить подписку"
+                };
+
+                var paymentsButton = t.AnswerLang switch
+                {
+                    UiLang.En => "💳 Payment History",
+                    _ => "💳 История платежей"
+                };
+
+                var backButton = t.AnswerLang switch
+                {
+                    UiLang.En => "◀️ Back to Menu",
+                    _ => "◀️ Назад в меню"
+                };
+
+                var buttons = new List<InlineKeyboardButton[]>();
 
                 if (!isPremium)
                 {
-                    // Для Free - кнопка перехода на Premium
-                    buttons.Add(new List<InlineKeyboardButton>
-            {
-                InlineKeyboardButton.WithCallbackData(
-                    entity.AnswerLang == UiLang.En ? "💎 Upgrade to Premium" : "💎 Перейти на Premium",
-                    BotRoutes.Callbacks.Subscription.ChoosePlan)
-            });
+                    buttons.Add(new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData(
+                            upgradeButton,
+                            BotRoutes.Callbacks.Subscription.ChoosePlan)
+                    });
                 }
                 else
                 {
-                    // Для Premium - кнопка отмены
-                    buttons.Add(new List<InlineKeyboardButton>
-            {
-                InlineKeyboardButton.WithCallbackData(
-                    entity.AnswerLang == UiLang.En ? "❌ Cancel Subscription" : "❌ Отменить подписку",
-                    BotRoutes.Callbacks.Subscription.Cancel)
-            });
+                    buttons.Add(new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData(
+                            cancelButton,
+                            BotRoutes.Callbacks.Subscription.Cancel)
+                    });
                 }
 
-                // Кнопка "Назад"
-                buttons.Add(new List<InlineKeyboardButton>
-        {
-            InlineKeyboardButton.WithCallbackData(
-                entity.AnswerLang == UiLang.En ? "⬅️ Back" : "⬅️ Назад",
-                BotRoutes.Callbacks.Menu.MenuMain)
-        });
+                // ✅ ДОБАВЛЕНО
+                buttons.Add(new[]
+                {
+                    InlineKeyboardButton.WithCallbackData(
+                        paymentsButton,
+                        BotRoutes.Callbacks.Subscription.Payments)
+                });
+
+                buttons.Add(new[]
+                {
+                    InlineKeyboardButton.WithCallbackData(
+                        backButton,
+                        BotRoutes.Callbacks.Menu.MenuMain)
+                });
 
                 return new InlineKeyboardMarkup(buttons);
             }
@@ -1132,34 +1328,66 @@ namespace MirrorBot.Worker.Flow.UI
 
 
             /// <summary>
-            /// Клавиатура с ссылкой на оплату.
+            /// Клавиатура со ссылкой на оплату.
             /// </summary>
-            public static InlineKeyboardMarkup PaymentLink(BotTask entity, string paymentUrl)
+            public static InlineKeyboardMarkup PaymentLink(BotTask t, string paymentUrl)
             {
-                var buttons = new List<List<InlineKeyboardButton>>
-    {
-        new()
+                var payButton = t.AnswerLang switch
+                {
+                    UiLang.En => "💳 Pay",
+                    _ => "💳 Оплатить"
+                };
+
+                var cancelButton = t.AnswerLang switch
+                {
+                    UiLang.En => "❌ Cancel",
+                    _ => "❌ Отмена"
+                };
+
+                return new InlineKeyboardMarkup(new[]
+                {
+        new[]
         {
-            InlineKeyboardButton.WithUrl(
-                entity.AnswerLang == UiLang.En ? "💳 Pay" : "💳 Оплатить",
-                paymentUrl)
+            InlineKeyboardButton.WithUrl(payButton, paymentUrl)
         },
-        new()
+        new[]
         {
             InlineKeyboardButton.WithCallbackData(
-                entity.AnswerLang == UiLang.En ? "⬅️ Back" : "⬅️ Назад",
-                BotRoutes.Callbacks.Subscription.ChoosePlan)
+                cancelButton,
+                BotRoutes.Callbacks.Subscription.Main)  // ✅ Используем готовый Main
         }
-    };
+    });
+            }
 
-                return new InlineKeyboardMarkup(buttons);
+
+
+            /// <summary>
+            /// Клавиатура для истории платежей.
+            /// </summary>
+            public static InlineKeyboardMarkup UserPayments(BotTask t)
+            {
+                var backButton = t.AnswerLang switch
+                {
+                    UiLang.En => "◀️ Back",
+                    _ => "◀️ Назад"
+                };
+
+                return new InlineKeyboardMarkup(new[]
+                {
+        new[]
+        {
+            InlineKeyboardButton.WithCallbackData(
+                backButton,
+                BotRoutes.Callbacks.Subscription.Main)
+        }
+    });
             }
 
 
 
 
-            public sealed record BotListItem(string Id, string Title, bool IsEnabled);        
-          
+            public sealed record BotListItem(string Id, string Title, bool IsEnabled);
+
         }
     }
 }

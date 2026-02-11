@@ -14,7 +14,7 @@ namespace MirrorBot.Worker.Bot
 
         private readonly ILogger<BotManager> _log;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly IServiceScopeFactory _scopeFactory; // ✅ ДОБАВЛЕНО
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly IOptions<BotConfiguration> _mainOpt;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ITokenEncryptionService _tokenEncryption;
@@ -24,14 +24,14 @@ namespace MirrorBot.Worker.Bot
         public BotManager(
             ILoggerFactory loggerFactory,
             ILogger<BotManager> log,
-            IServiceScopeFactory scopeFactory, // ✅ ДОБАВЛЕНО
+            IServiceScopeFactory scopeFactory,
             IOptions<BotConfiguration> mainOpt,
             IHttpClientFactory httpClientFactory,
             ITokenEncryptionService tokenEncryption)
         {
             _loggerFactory = loggerFactory;
             _log = log;
-            _scopeFactory = scopeFactory; // ✅ ДОБАВЛЕНО
+            _scopeFactory = scopeFactory;
             _mainOpt = mainOpt;
             _httpClientFactory = httpClientFactory;
             _tokenEncryption = tokenEncryption;
@@ -41,13 +41,12 @@ namespace MirrorBot.Worker.Bot
         {
             try
             {
-                StartMainBot();
+                await StartMainBotAsync(stoppingToken);  // ✅ ИЗМЕНЕНО: сделал async для GetMe
 
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     try
                     {
-                        // ✅ ИЗМЕНЕНО: Создаем scope для доступа к репозиторию
                         using var scope = _scopeFactory.CreateScope();
                         var repo = scope.ServiceProvider.GetRequiredService<IMirrorBotsRepository>();
 
@@ -61,7 +60,7 @@ namespace MirrorBot.Worker.Bot
                             var key = b.Id.ToString();
                             if (_runners.ContainsKey(key)) continue;
 
-                            TryStartMirror(key, new BotContext(b.Id, b.OwnerTelegramUserId, b.EncryptedToken, b.BotUsername));
+                            await TryStartMirrorAsync(key, new BotContext(b.Id, b.OwnerTelegramUserId, b.EncryptedToken, b.BotUsername), stoppingToken);  // ✅ ИЗМЕНЕНО
                         }
 
                         // стоп отключённых/удалённых
@@ -102,7 +101,7 @@ namespace MirrorBot.Worker.Bot
             return base.StopAsync(cancellationToken);
         }
 
-        private void StartMainBot()
+        private async Task StartMainBotAsync(CancellationToken cancellationToken)  // ✅ ИЗМЕНЕНО: async
         {
             var ctx = new BotContext(
                 MirrorBotId: MongoDB.Bson.ObjectId.Empty,
@@ -116,10 +115,10 @@ namespace MirrorBot.Worker.Bot
                 return;
             }
 
-            TryStartMirror(MainKey, ctx);
+            await TryStartMirrorAsync(MainKey, ctx, cancellationToken);  // ✅ ИЗМЕНЕНО
         }
 
-        private void TryStartMirror(string key, BotContext ctx)
+        private async Task TryStartMirrorAsync(string key, BotContext ctx, CancellationToken cancellationToken)  // ✅ ИЗМЕНЕНО: async
         {
             var http = _httpClientFactory.CreateClient("telegram");
 
@@ -147,7 +146,26 @@ namespace MirrorBot.Worker.Bot
 
             var client = new TelegramBotClient(new TelegramBotClientOptions(plainToken), http);
 
-            // ✅ ИЗМЕНЕНО: Передаем IServiceScopeFactory вместо BotFlowService
+            // ✅ ДОБАВЛЕНО: Получаем реальный username бота через GetMe
+            try
+            {
+                var botInfo = await client.GetMe(cancellationToken);
+
+                // Обновляем контекст с реальным username
+                ctx = new BotContext(
+                    ctx.MirrorBotId,
+                    ctx.OwnerTelegramUserId,
+                    ctx.Token,
+                    botInfo.Username ?? ctx.BotUsername);
+
+                _log.LogInformation("Bot @{Username} initialized (key: {BotKey})", ctx.BotUsername, key);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Failed to get bot info for {BotKey}", key);
+                return;
+            }
+
             var handler = new BotUpdateHandler(
                 ctx,
                 _scopeFactory,
@@ -215,6 +233,21 @@ namespace MirrorBot.Worker.Bot
 
             client = runner.Client;
             return true;
+        }
+
+        /// <summary>
+        /// Получить клиент бота по username.
+        /// </summary>
+        public ITelegramBotClient? ResolveBotByUsername(string botUsername)
+        {
+            if (string.IsNullOrWhiteSpace(botUsername))
+                return null;
+
+            // Ищем среди запущенных ботов
+            var runner = _runners.Values.FirstOrDefault(
+                r => r.Context.BotUsername?.Equals(botUsername, StringComparison.OrdinalIgnoreCase) == true);
+
+            return runner?.Client;
         }
     }
 }

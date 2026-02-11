@@ -10,5 +10,9 @@ namespace MirrorBot.Worker.Bot
     public interface IBotClientResolver
     {
         bool TryGetClient(string botKey, out ITelegramBotClient client);
+        /// <summary>
+        /// Получить клиент бота по username.
+        /// </summary>
+        ITelegramBotClient? ResolveBotByUsername(string botUsername);
     }
 }

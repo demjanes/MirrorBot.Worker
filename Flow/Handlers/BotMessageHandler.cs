@@ -9,6 +9,7 @@ using MirrorBot.Worker.Flow.UI;
 using MirrorBot.Worker.Services;
 using MirrorBot.Worker.Services.AdminNotifierService;
 using MirrorBot.Worker.Services.AI.Interfaces;
+using MirrorBot.Worker.Services.Payments;  // ✅ ДОБАВЛЕНО
 using MirrorBot.Worker.Services.Referral;
 using MirrorBot.Worker.Services.Subscr;
 using MirrorBot.Worker.Services.TokenEncryption;
@@ -39,6 +40,7 @@ namespace MirrorBot.Worker.Flow.Handlers
         private readonly IReferralService _referralService;
         private readonly ISubscriptionService _subscriptionService;
         private readonly IEnglishTutorService _englishTutorService;
+        private readonly IPaymentService _paymentService;  // ✅ ДОБАВЛЕНО
 
         public BotMessageHandler(
             ILogger<BotMessageHandler> logger,
@@ -50,7 +52,8 @@ namespace MirrorBot.Worker.Flow.Handlers
             IOptions<LimitsConfiguration> limitsOptions,
             IReferralService referralService,
             ISubscriptionService subscriptionService,
-            IEnglishTutorService englishTutorService)
+            IEnglishTutorService englishTutorService,
+            IPaymentService paymentService)  // ✅ ДОБАВЛЕНО
         {
             _logger = logger;
             _users = users;
@@ -62,6 +65,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             _referralService = referralService;
             _subscriptionService = subscriptionService;
             _englishTutorService = englishTutorService;
+            _paymentService = paymentService;  // ✅ ДОБАВЛЕНО
         }
 
         public async Task HandleAsync(BotContext ctx, ITelegramBotClient client, Message msg, CancellationToken ct)
@@ -84,7 +88,7 @@ namespace MirrorBot.Worker.Flow.Handlers
                 TgUserText = text,
             };
 
-            // ============ ИЗМЕНЕНО: Парсим /start параметр ПЕРЕД switch ============
+            // Парсим /start параметр ПЕРЕД switch
             string? startParameter = null;
             if (text.StartsWith(BotRoutes.Commands.Start, StringComparison.OrdinalIgnoreCase))
             {
@@ -94,11 +98,9 @@ namespace MirrorBot.Worker.Flow.Handlers
                     startParameter = parts[1];
                 }
             }
-            // ========================================================================
 
             await UpsertSeenAsync(taskEntity, startParameter, ct);
 
-            // ============ ВЕРНУЛ ОБРАТНО проверку полного текста ============
             switch (text)
             {
                 case var cmd when cmd.StartsWith(BotRoutes.Commands.Start, StringComparison.OrdinalIgnoreCase):
@@ -144,6 +146,13 @@ namespace MirrorBot.Worker.Flow.Handlers
                     await HandleSubscriptionCommandAsync(taskEntity, ct);
                     return;
 
+                // ✅ ДОБАВЛЕНО: Обработка команды /payments
+                case BotRoutes.Commands.Payments:
+                case BotRoutes.Commands.PaymentsTxt_Ru:
+                case BotRoutes.Commands.PaymentsTxt_En:
+                    await HandlePaymentsCommandAsync(taskEntity, ct);
+                    return;
+
                 default:
                     if (LooksLikeToken(text))
                     {
@@ -151,9 +160,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                         return;
                     }
 
-                    //taskEntity.AnswerText = BotUi.Text.Unknown(taskEntity);
-                    //taskEntity.AnswerKeyboard = BotUi.Keyboards.StartR(taskEntity);
-                    //await SendAsync(taskEntity, ct);
                     // Обработка обычного текстового сообщения через English Tutor
                     await ProcessUserMessageAsync(taskEntity, ct);
                     return;
@@ -306,8 +312,10 @@ namespace MirrorBot.Worker.Flow.Handlers
             taskEntity.AnswerKeyboard = BotUi.Keyboards.BotAddResult(taskEntity);
             await SendAsync(taskEntity, ct);
         }
+
         private static bool LooksLikeToken(string text)
             => !string.IsNullOrWhiteSpace(text) && TokenRegex.IsMatch(text.Trim());
+
         private static string SanitizeForAdmin(string? text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "<empty>";
@@ -322,6 +330,7 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             return t;
         }
+
         private static string MaskToken(string token)
         {
             var colon = token.IndexOf(':');
@@ -351,13 +360,11 @@ namespace MirrorBot.Worker.Flow.Handlers
 
             try
             {
-                // Отправляем "печатает..."
                 await taskEntity.TgClient.SendChatAction(
                     taskEntity.TgChatId.Value,
                     ChatAction.Typing,
                     cancellationToken: ct);
 
-                // Обрабатываем через English Tutor
                 var response = await _englishTutorService.ProcessTextMessageAsync(
                     userId,
                     botId,
@@ -373,7 +380,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                     return;
                 }
 
-                // Отправляем текстовый ответ
                 if (!string.IsNullOrEmpty(response.TextResponse))
                 {
                     await taskEntity.TgClient.SendMessage(
@@ -383,7 +389,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                         cancellationToken: ct);
                 }
 
-                // Если есть голосовой ответ
                 if (response.VoiceResponse != null)
                 {
                     using var stream = new MemoryStream(response.VoiceResponse);
@@ -391,31 +396,22 @@ namespace MirrorBot.Worker.Flow.Handlers
                         taskEntity.TgChatId.Value,
                         new InputFileStream(stream, "response.ogg"),
                         cancellationToken: ct);
-
-                    // Сохраняем fileId в кэш для последующего использования
-                    if (!string.IsNullOrEmpty(response.CacheKey) && voiceMsg.Voice != null)
-                    {
-                        // TODO: Обновить кэш с voiceFileId
-                        // await _cacheService.UpdateVoiceFileIdAsync(response.CacheKey, voiceMsg.Voice.FileId, ct);
-                    }
                 }
                 else if (!string.IsNullOrEmpty(response.CachedVoiceFileId))
                 {
-                    // Используем кэшированный FileId
                     await taskEntity.TgClient.SendVoice(
                         taskEntity.TgChatId.Value,
                         new InputFileId(response.CachedVoiceFileId),
                         cancellationToken: ct);
                 }
 
-                // Показываем грамматические ошибки (если есть)
                 if (response.Corrections?.Count > 0)
                 {
-                    var correctionsText = "✏️ <b>Грамматические ошибки:</b>\n\n";
+                    var correctionsText = "✏️ <b>Грамматические ошибки:</b>\\n\\n";
                     foreach (var correction in response.Corrections.Take(5))
                     {
-                        correctionsText += $"❌ <code>{correction.Original}</code> → ✅ <code>{correction.Corrected}</code>\n";
-                        correctionsText += $"<i>{correction.Explanation}</i>\n\n";
+                        correctionsText += $"❌ <code>{correction.Original}</code> → ✅ <code>{correction.Corrected}</code>\\n";
+                        correctionsText += $"<i>{correction.Explanation}</i>\\n\\n";
                     }
 
                     await taskEntity.TgClient.SendMessage(
@@ -425,13 +421,12 @@ namespace MirrorBot.Worker.Flow.Handlers
                         cancellationToken: ct);
                 }
 
-                // Показываем новые слова (если есть)
                 if (response.NewVocabulary?.Count > 0)
                 {
-                    var vocabText = "📚 <b>Новые слова:</b>\n\n";
+                    var vocabText = "📚 <b>Новые слова:</b>\\n\\n";
                     foreach (var word in response.NewVocabulary.Take(5))
                     {
-                        vocabText += $"• <code>{word}</code>\n";
+                        vocabText += $"• <code>{word}</code>\\n";
                     }
 
                     await taskEntity.TgClient.SendMessage(
@@ -458,7 +453,6 @@ namespace MirrorBot.Worker.Flow.Handlers
             {
                 var userId = entity.TgMessage!.From!.Id;
 
-                // Получаем информацию о подписке через ISubscriptionService
                 var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
 
                 entity.AnswerText = BotUi.Text.SubscriptionInfo(entity, subscriptionInfo);
@@ -482,6 +476,36 @@ namespace MirrorBot.Worker.Flow.Handlers
             }
         }
 
+        // ✅ ДОБАВЛЕНО: Обработчик команды /payments
+        private async Task HandlePaymentsCommandAsync(BotTask entity, CancellationToken ct)
+        {
+            try
+            {
+                var userId = entity.TgMessage!.From!.Id;
+
+                var payments = await _paymentService.GetUserPaymentsAsync(userId, ct);
+
+                entity.AnswerText = BotUi.Text.UserPayments(entity, payments);
+                entity.AnswerKeyboard = BotUi.Keyboards.UserPayments(entity);
+
+                await entity.TgClient.SendMessage(
+                    entity.TgChatId.Value,
+                    entity.AnswerText,
+                    parseMode: ParseMode.Html,
+                    replyMarkup: entity.AnswerKeyboard,
+                    cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling payments command for user {UserId}", entity.TgMessage?.From?.Id);
+
+                await entity.TgClient.SendMessage(
+                    entity.TgChatId.Value,
+                    "Произошла ошибка при получении истории платежей.",
+                    cancellationToken: ct);
+            }
+        }
+
         private async Task UpsertSeenAsync(
             BotTask entity,
             string? startParameter,
@@ -500,12 +524,10 @@ namespace MirrorBot.Worker.Flow.Handlers
             long? refOwner = null;
             ObjectId? refBotId = null;
 
-            // Определяем реферера: сначала из start-параметра, потом из владельца зеркала
             var referrerFromParam = ReferralCodeParser.TryParseOwnerTelegramId(startParameter);
 
             if (referrerFromParam.HasValue && referrerFromParam.Value != from.Id)
             {
-                // Есть валидный start-параметр и это не сам пользователь
                 refOwner = referrerFromParam.Value;
                 refBotId = entity.BotContext.MirrorBotId != ObjectId.Empty
                     ? entity.BotContext.MirrorBotId
@@ -515,7 +537,6 @@ namespace MirrorBot.Worker.Flow.Handlers
                      && entity.BotContext.MirrorBotId != ObjectId.Empty
                      && from.Id != entity.BotContext.OwnerTelegramUserId)
             {
-                // Нет start-параметра, но пользователь пришел через зеркало
                 refOwner = entity.BotContext.OwnerTelegramUserId;
                 refBotId = entity.BotContext.MirrorBotId;
             }
@@ -538,15 +559,13 @@ namespace MirrorBot.Worker.Flow.Handlers
                 : SanitizeForAdmin(entity.TgMessage.Text);
 
             _notifier.TryEnqueue(AdminChannel.Info,
-                $"#id{seen.TgUserId} @{seen.TgUsername}\\n" +
-                $"{adminText}\\n" +
+                $"#id{seen.TgUserId} @{seen.TgUsername}\\\\n" +
+                $"{adminText}\\\\n" +
                 $"@{entity.BotContext.BotUsername}");
 
-            // ✅ ИЗМЕНЕНО: Получаем флаг isNewUser
             var (user, isNewUser) = await _users.UpsertSeenAsync(seen, ct);
             entity.User = user;
 
-            // ✅ ИЗМЕНЕНО: Регистрируем реферала ТОЛЬКО если пользователь новый И есть реферер
             if (isNewUser && refOwner.HasValue)
             {
                 await _referralService.RegisterReferralAsync(
@@ -556,6 +575,5 @@ namespace MirrorBot.Worker.Flow.Handlers
                     cancellationToken: ct);
             }
         }
-
     }
 }
