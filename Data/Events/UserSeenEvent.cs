@@ -24,16 +24,4 @@ namespace MirrorBot.Worker.Data.Events
 );
 
 
-
-    //public record UserSeenEvent(
-    //    long TgUserId,
-    //    string? TgUsername,
-    //    string? TgFirstName,
-    //    string? TgLastName,
-    //    string? TgLangCode,
-    //    string LastBotKey,
-    //    long? LastChatId,
-    //    DateTime SeenAtUtc
-    //// ✅ УБРАНО: ReferrerOwnerTgUserId и ReferrerMirrorBotId
-    //);
 }

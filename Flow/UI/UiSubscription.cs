@@ -1,19 +1,14 @@
-﻿using MirrorBot.Worker.Data.Enums;
-using MirrorBot.Worker.Data.Models.Core;
+﻿using MirrorBot.Worker.Data.Models.Core;
 using MirrorBot.Worker.Data.Models.Payments;
 using MirrorBot.Worker.Data.Models.Subscription;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MirrorBot.Worker.Flow.UI
 {
-    public static class SubscriptionUi
+    public static class UiSubscription
     {
         public static string Info(BotTask entity, SubscriptionInfo info)
         {

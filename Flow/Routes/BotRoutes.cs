@@ -1,6 +1,7 @@
 ﻿using MirrorBot.Worker.Bot;
-using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Flow.Handlers;
+using MirrorBot.Worker.Flow.Handlers.Models;
+using MirrorBot.Worker.Flow.UI.Models;
 using MongoDB.Bson;
 using Telegram.Bot;
 using Telegram.Bot.Types;

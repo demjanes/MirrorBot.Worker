@@ -2,10 +2,10 @@
 using MirrorBot.Worker.Bot;
 using MirrorBot.Worker.Configs;
 using MirrorBot.Worker.Configs.Payments;
-using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Models.Payments;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
 using MirrorBot.Worker.Flow.UI;
+using MirrorBot.Worker.Flow.UI.Models;
 using MirrorBot.Worker.Services.Payments.Providers;
 using MirrorBot.Worker.Services.Payments.Providers.YooKassa;
 using MirrorBot.Worker.Services.Referral;
@@ -317,7 +317,7 @@ namespace MirrorBot.Worker.Services.Payments
 
                 // Формируем текст
                 var expiresAt = DateTime.UtcNow.AddDays(plan.DurationDays);
-                var text = SubscriptionUi.PaymentSuccessNotification(
+                var text = UiSubscription.PaymentSuccessNotification(
                     lang,
                     plan.Name,
                     payment.Amount,

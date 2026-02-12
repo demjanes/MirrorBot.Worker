@@ -104,14 +104,14 @@ namespace MirrorBot.Worker.Flow.Handlers
             switch (text)
             {
                 case var cmd when cmd.StartsWith(BotRoutes.Commands.Start, StringComparison.OrdinalIgnoreCase):
-                    taskEntity.AnswerText = CommonUi.Start(taskEntity);
-                    taskEntity.AnswerKeyboard = CommonUi.StartRKeyboard(taskEntity);
+                    taskEntity.AnswerText = UiCommon.Start(taskEntity);
+                    taskEntity.AnswerKeyboard = UiCommon.StartRKeyboard(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.HideKbrdTxt_Ru:
                 case BotRoutes.Commands.HideKbrdTxt_En:
-                    taskEntity.AnswerText = CommonUi.HideKbrd(taskEntity);
+                    taskEntity.AnswerText = UiCommon.HideKbrd(taskEntity);
                     taskEntity.AnswerKeyboard = new ReplyKeyboardRemove();
                     await SendAsync(taskEntity, ct);
                     return;
@@ -119,24 +119,24 @@ namespace MirrorBot.Worker.Flow.Handlers
                 case BotRoutes.Commands.HelpTxt_Ru:
                 case BotRoutes.Commands.HelpTxt_En:
                 case BotRoutes.Commands.Help:
-                    taskEntity.AnswerText = CommonUi.Help(taskEntity);
-                    taskEntity.AnswerKeyboard = CommonUi.HelpKeyboard(taskEntity);
+                    taskEntity.AnswerText = UiCommon.Help(taskEntity);
+                    taskEntity.AnswerKeyboard = UiCommon.HelpKeyboard(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.MenuTxt_Ru:
                 case BotRoutes.Commands.MenuTxt_En:
                 case BotRoutes.Commands.Menu:
-                    taskEntity.AnswerText = CommonUi.Menu(taskEntity);
-                    taskEntity.AnswerKeyboard = CommonUi.MenuKeyboard(taskEntity);
+                    taskEntity.AnswerText = UiCommon.Menu(taskEntity);
+                    taskEntity.AnswerKeyboard = UiCommon.MenuKeyboard(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
                 case BotRoutes.Commands.Ref:
                 case BotRoutes.Commands.RefTxt_Ru:
                 case BotRoutes.Commands.RefTxt_En:
-                    taskEntity.AnswerText = ReferralUi.Ref(taskEntity);
-                    taskEntity.AnswerKeyboard = ReferralUi.RefKeyboard(taskEntity);
+                    taskEntity.AnswerText = UiReferral.Ref(taskEntity);
+                    taskEntity.AnswerKeyboard = UiReferral.RefKeyboard(taskEntity);
                     await SendAsync(taskEntity, ct);
                     return;
 
@@ -215,7 +215,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             var existingByHash = await _mirrorBots.GetByTokenHashAsync(tokenHash, ct);
             if (existingByHash is not null)
             {
-                await client.SendMessage(msg.Chat.Id, CommonUi.TokenAlreadyAdded, cancellationToken: ct);
+                await client.SendMessage(msg.Chat.Id, UiCommon.TokenAlreadyAdded, cancellationToken: ct);
                 return;
             }
 
@@ -294,7 +294,7 @@ namespace MirrorBot.Worker.Flow.Handlers
             {
                 await client.SendMessage(
                     chatId: msg.Chat.Id,
-                    text: CommonUi.TokenAlreadyAdded,
+                    text: UiCommon.TokenAlreadyAdded,
                     cancellationToken: ct);
                 return;
             }
@@ -306,8 +306,8 @@ namespace MirrorBot.Worker.Flow.Handlers
                 BotMirror = mirror
             };
 
-            taskEntity.AnswerText = BotManagementUi.AddResult(taskEntity);
-            taskEntity.AnswerKeyboard = BotManagementUi.AddResultKeyboard(taskEntity);
+            taskEntity.AnswerText = UiBotManagement.AddResult(taskEntity);
+            taskEntity.AnswerKeyboard = UiBotManagement.AddResultKeyboard(taskEntity);
             await SendAsync(taskEntity, ct);
         }
 
@@ -453,8 +453,8 @@ namespace MirrorBot.Worker.Flow.Handlers
 
                 var subscriptionInfo = await _subscriptionService.GetSubscriptionInfoAsync(userId, ct);
 
-                entity.AnswerText = SubscriptionUi.Info(entity, subscriptionInfo);
-                entity.AnswerKeyboard = SubscriptionUi.InfoKeyboard(entity, subscriptionInfo.IsPremium);
+                entity.AnswerText = UiSubscription.Info(entity, subscriptionInfo);
+                entity.AnswerKeyboard = UiSubscription.InfoKeyboard(entity, subscriptionInfo.IsPremium);
 
                 await entity.TgClient.SendMessage(
                     entity.TgChatId.Value,
@@ -482,8 +482,8 @@ namespace MirrorBot.Worker.Flow.Handlers
 
                 var payments = await _paymentService.GetUserPaymentsAsync(userId, ct);
 
-                entity.AnswerText = SubscriptionUi.UserPayments(entity, payments);
-                entity.AnswerKeyboard = SubscriptionUi.UserPaymentsKeyboard(entity);
+                entity.AnswerText = UiSubscription.UserPayments(entity, payments);
+                entity.AnswerKeyboard = UiSubscription.UserPaymentsKeyboard(entity);
 
                 await entity.TgClient.SendMessage(
                     entity.TgChatId.Value,

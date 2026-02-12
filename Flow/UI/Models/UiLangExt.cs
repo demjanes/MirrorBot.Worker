@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MirrorBot.Worker.Data.Enums
+namespace MirrorBot.Worker.Flow.UI.Models
 {
     public static class UiLangExt
     {

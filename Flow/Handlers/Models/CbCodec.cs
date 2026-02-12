@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Text;
 
-namespace MirrorBot.Worker.Flow
+namespace MirrorBot.Worker.Flow.Handlers.Models
 {
     public class CbData(string section, string action, string[] args)
     {

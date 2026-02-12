@@ -1,4 +1,4 @@
-﻿using MirrorBot.Worker.Data.Enums;
+﻿using MirrorBot.Worker.Flow.UI.Models;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 

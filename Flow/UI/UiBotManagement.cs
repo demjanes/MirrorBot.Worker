@@ -1,17 +1,12 @@
-﻿using MirrorBot.Worker.Data.Enums;
-using MirrorBot.Worker.Data.Models.Core;
+﻿using MirrorBot.Worker.Data.Models.Core;
 using MirrorBot.Worker.Flow.Routes;
 using MirrorBot.Worker.Flow.UI.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MirrorBot.Worker.Flow.UI
 {
-    public static class BotManagementUi
+    public static class UiBotManagement
     {
         public static string MyBots(BotTask entity)
         {

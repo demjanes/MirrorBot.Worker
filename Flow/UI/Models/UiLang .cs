@@ -4,9 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MirrorBot.Worker.Flow.Handlers.English
+namespace MirrorBot.Worker.Flow.UI.Models
 {
-    internal class EnglishTextHandler
+    public enum UiLang
     {
+        Def = 0,
+        Ru = 1,
+        En = 2
     }
 }

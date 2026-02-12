@@ -1,8 +1,8 @@
 ﻿using MirrorBot.Worker.Configs;
-using MirrorBot.Worker.Data.Enums;
 using MirrorBot.Worker.Data.Events;
 using MirrorBot.Worker.Data.Models.Core;
 using MirrorBot.Worker.Data.Repositories.Interfaces;
+using MirrorBot.Worker.Flow.UI.Models;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System;
